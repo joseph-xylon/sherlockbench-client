@@ -1,5 +1,14 @@
 import sys
 from google.genai import types
+from .utility import save_message
+
+class NoToolException(Exception):
+    """When the LLM doesn't use it's tool when it was expected to."""
+    pass
+
+class MsgLimitException(Exception):
+    """When the LLM uses too many messages."""
+    pass
 
 def generate_schema(input_types):
     # Generate a dictionary with keys as sequential letters and values as types.Schema objects
@@ -26,11 +35,31 @@ def handle_tool_call(postfn, printer, attempt_id, call):
 
     print_tool_call(printer, args_norm, fnoutput)
 
-    function_call_result_message = {"function_response":
-                                    {"name": fnname,
-                                     "response": {"output": json.dumps(fnoutput)}}}
+    function_response_content = types.Content(
+        role='tool', parts=[types.Part.from_function_response(
+            name=fnname,
+            response={'result': fnoutput},
+        )]
+    )
 
-    return function_call_result_message
+    return function_response_content
+
+def get_text_from_completion(obj_list):
+    """
+    Concatenates the .text property from each object in the list.
+    If an object doesn't have a .text property, it is skipped.
+    
+    :param obj_list: List of objects to process
+    :return: Concatenated string of all .text properties
+    """
+    result = ""
+    for obj in obj_list.candidates[0].content.parts:
+        # Use getattr with a default value to avoid AttributeError
+        text = getattr(obj, "text", None)
+        if text is not None:
+            result += text
+    return result
+
 
 def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec):
     msg_limit = config["msg-limit"]
@@ -54,19 +83,28 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
     for count in range(0, msg_limit):
         completion = completionfn(contents=messages, tools=tools)
 
-        message = completion.text if not ValueError else ""
+        print("########")
+        message = get_text_from_completion(completion)
         tool_calls = completion.function_calls
 
         printer.print("\n--- LLM ---")
         printer.indented_print(message)
 
         if tool_calls:
-            #print(tool_calls[0])
-
             printer.print("\n### SYSTEM: calling tool")
+            for part in completion.candidates[0].content.parts:
+                messages.append(part)
 
-            next_message = []
-            for call in tool_calls:
-                next_message.append(handle_tool_call(postfn, printer, attempt_id, call))
+                if part.function_call is not None:
+                    messages.append(handle_tool_call(postfn, printer, attempt_id, part.function_call))
+                    tool_call_counter += 1
 
-                tool_call_counter += 1
+        # if it didn't call the tool we can move on to verifications
+        else:
+            printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
+            messages.append(save_message("assistant", message))
+
+            return (messages, tool_call_counter)
+
+    # LLM ran out of messages
+    raise MsgLimitException("LLM ran out of messages.")
