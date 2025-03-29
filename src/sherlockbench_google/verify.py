@@ -17,6 +17,25 @@ def verify(config, postfn, completionfn, messages, printer, attempt_id):
         completion = completionfn(contents=vmessages,
                                   schema=make_schema(output_type))
 
-        print(completion.text)
+        thoughts = completion.parsed.thoughts
+        expected_output = completion.parsed.expected_output
 
-        sys.exit(0)
+        printer.print("\n--- LLM ---")
+        printer.indented_print(thoughts, "\n")
+        printer.print()
+        printer.indented_print("`" + str(expected_output) + "`\n")
+
+        vstatus = postfn("attempt-verification", {"attempt-id": attempt_id,
+                                                  "prediction": expected_output})["status"]
+
+        if vstatus in ("wrong"):
+            printer.print("\n### SYSTEM: WRONG")
+            return False
+        else:
+            printer.print("\n### SYSTEM: CORRECT")
+
+        if vstatus in ("done"):
+            break
+
+    # if we got here all the verifications passed
+    return True

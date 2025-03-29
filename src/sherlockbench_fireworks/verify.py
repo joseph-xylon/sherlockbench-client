@@ -41,11 +41,11 @@ def verify(config, postfn, completionfn, messages, printer, attempt_id):
         if vstatus in ("wrong"):
             printer.print("\n### SYSTEM: WRONG")
             return False
-
+        else:
+            printer.print("\n### SYSTEM: CORRECT")
+        
         if vstatus in ("done"):
             break
-
-        printer.print("\n### SYSTEM: CORRECT")
 
     # if we got here all the verifications passed
     return True
