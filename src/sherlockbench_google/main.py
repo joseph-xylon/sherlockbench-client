@@ -1,3 +1,4 @@
+import sys
 from google import genai
 from google.genai import types
 from pprint import pprint
@@ -7,11 +8,11 @@ from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRate
 from .prompts import system_message, initial_message
 from .utility import save_message
 from .investigate import investigate
-#from .verify import verify
+from .verify import verify
 
 from datetime import datetime
 
-def create_completion(client, model, tools=None, **kwargs):
+def create_completion(client, model, tools=None, schema=None, **kwargs):
     """closure to pre-load the model"""
     #print("CONTENTS")
     #print(contents)
@@ -24,7 +25,11 @@ def create_completion(client, model, tools=None, **kwargs):
     
     if tools is not None:
         config_args["tools"] = tools
-        
+
+    if schema is not None:
+        config_args["response_schema"] = schema
+        config_args["response_mime_type"] = 'application/json'
+
     return client.models.generate_content(
         model=model,
         config=types.GenerateContentConfig(**config_args),
@@ -69,30 +74,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-##########################################################################
-
-def poc():
-    contents = []
-    while True:
-        user_input = input("Enter a string: ")
-        
-        contents.append(
-            save_message("user", user_input)
-        )
-
-        response = client.models.generate_content(
-            model=config['model'],
-            contents=contents
-        )
-        
-        print(response.text)
-
-        contents.append(
-            save_message("assistant", response.text)
-        )
-        
-        #print(response.function_calls)
-        #print(response.text)
-
-    

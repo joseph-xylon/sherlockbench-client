@@ -83,7 +83,6 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
     for count in range(0, msg_limit):
         completion = completionfn(contents=messages, tools=tools)
 
-        print("########")
         message = get_text_from_completion(completion)
         tool_calls = completion.function_calls
 
