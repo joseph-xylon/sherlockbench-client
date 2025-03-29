@@ -135,7 +135,7 @@ def make_schema(output_type):
     return Prediction
 
 class LLMRateLimiter:
-    def __init__(self, rate_limit_seconds: int, llmfn: Callable, backoff_exceptions: tuple, renewfn: Callable = None):
+    def __init__(self, rate_limit_seconds: int, llmfn: Callable, backoff_exceptions: tuple):
         """
         Initialize the RateLimiter.
 
@@ -144,7 +144,6 @@ class LLMRateLimiter:
         self.llmfn = llmfn
         self.backoff_exceptions = backoff_exceptions
         self.rate_limit_seconds = rate_limit_seconds
-        self.renewfn = renewfn
         self.last_call_time = None
         self.total_call_count = 0
 
@@ -180,17 +179,6 @@ class LLMRateLimiter:
 
     def __call__(self, *args, **kwargs):
         return self.handle_call(self.llmfn, *args, **kwargs)
-
-    def stateless_call(self, *args, **kwargs):
-        return self.handle_call(copy.deepcopy(self.llmfn), *args, **kwargs)
-    
-    def renew_llmfn(self):
-        if self.renewfn:
-            self.llmfn = self.renewfn()
-
-            return True
-        else:
-            return False
 
 def value_list_to_map(xs):
     """take a vector and return map with alphabetical keys"""
