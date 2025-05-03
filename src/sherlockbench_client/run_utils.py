@@ -126,36 +126,38 @@ def start_run(provider):
             # Update config with info from the failed run
             config.update(failed_run.get("config", {}))
             
+            # Get information about the run
+            run_type = failed_run.get("config", {}).get("run_type", "unknown")
+            
             # Get a list of already completed attempts
             completed_attempts = q.get_completed_attempts(cursor, run_id)
             
-            # Start the run from the API to get all attempts
-            subset = config.get("subset")  # none if key is missing
-            post_data = {"client-id": f"{provider}/{config['model']}", "existing-run-id": run_id}
-            
-            if subset:
-                post_data["subset"] = subset
-                
-            if args.attempts_per_problem:
-                post_data["attempts-per-problem"] = args.attempts_per_problem
-                
-            run_id, run_type, benchmark_version, all_attempts = destructure(
-                post(config['base-url'], None, "start-run", post_data),
-                "run-id", "run-type", "benchmark-version", "attempts"
-            )
-            
             print(f"Resuming {run_type} benchmark with run-id: {run_id}")
+            
+            # Get the all_attempts array from failure_info
+            all_attempts = failed_run.get("failure_info", {}).get("all_attempts", [])
+            
+            if not all_attempts:
+                print("\n### SYSTEM ERROR: Could not find the list of attempts in failure info")
+                print("This may be because the run was started before the update to save all attempts")
+                print("Please use the --retry-specific-attempt=<attempt-id> option instead")
+                exit(1)
+            
+            # Find where we were in the list of attempts
+            current_attempt_index = failed_run.get("failure_info", {}).get("current_attempt_index")
+            if current_attempt_index is not None and all_attempts:
+                print(f"Failed at attempt index {current_attempt_index} of {len(all_attempts)}")
             
             # Filter out attempts that have already been completed
             attempts = []
             for attempt in all_attempts:
-                if attempt["attempt-id"] not in completed_attempts:
+                if "attempt-id" in attempt and attempt["attempt-id"] not in completed_attempts:
                     attempts.append(attempt)
-                    
+            
             # If we're skipping the failed attempt, remove it from the attempts list
             if args.resume == "skip" and failed_attempt:
                 attempts = [a for a in attempts if a.get("attempt-id") != failed_attempt.get("attempt-id")]
-                
+            
             print(f"Found {len(completed_attempts)} completed attempts")
             print(f"Remaining attempts to process: {len(attempts)}")
         else:
@@ -214,7 +216,7 @@ def complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, 
     cursor.close()
     db_conn.close()
 
-def save_run_failure(cursor, run_id, current_attempt, error_info):
+def save_run_failure(cursor, run_id, all_attempts, current_attempt, error_info):
     """
     Save information about a run failure to the database.
     
@@ -230,7 +232,8 @@ def save_run_failure(cursor, run_id, current_attempt, error_info):
         "error_type": error_info.get("error_type", "Unknown"),
         "error_message": error_info.get("error_message", "No message"),
         "traceback": error_info.get("traceback", "No traceback"),
-        "current_attempt": current_attempt
+        "current_attempt": current_attempt,
+        "all_attempts": all_attempts
     }
     
     # Save the failure info to the database
@@ -256,20 +259,28 @@ def reset_attempt(config, run_id, attempt_id):
     """
     try:
         # Call the reset-attempt API endpoint
+        print(f"\n### DEBUG: Calling reset-attempt API for run_id={run_id}, attempt_id={attempt_id}")
+        
         response = post(config["base-url"],
                         str(run_id),
                         "developer/reset-attempt",
                         {"attempt-id": str(attempt_id)})
-
-        if response.get("status") == "success":
+        
+        # Debug information about the response
+        print(f"\n### DEBUG: API response type: {type(response)}")
+        print(f"\n### DEBUG: API response content: {response}")
+        
+        # Simple string check for success since we don't know the exact structure
+        if "success" in str(response).lower():
             print(f"\n### SYSTEM: Successfully reset attempt {attempt_id}")
             return True
         else:
-            print(f"\n### SYSTEM ERROR: Failed to reset attempt: {response.get('message', 'Unknown error')}")
+            print(f"\n### SYSTEM ERROR: Failed to reset attempt. Response: {response}")
             return False
             
     except Exception as e:
         print(f"\n### SYSTEM ERROR: Failed to reset attempt: {str(e)}")
+        print(f"\n### DEBUG: Exception traceback: {traceback.format_exc()}")
         return False
 
 def run_with_error_handling(provider, main_function):
@@ -315,6 +326,8 @@ def run_with_error_handling(provider, main_function):
         
         # Save error information to database if we have a connection
         if db_conn and cursor and run_id:
+            print("attempts: ", attempts)
+            
             error_info = {
                 "error_type": error_type,
                 "error_message": error_message,
@@ -324,7 +337,15 @@ def run_with_error_handling(provider, main_function):
             try:
                 # Get the current attempt from our global tracker
                 current_attempt = get_current_attempt()
-                save_run_failure(cursor, run_id, current_attempt, error_info)
+                
+                # Also capture the index of the current attempt in the attempts list for resuming
+                if current_attempt and attempts:
+                    for i, attempt in enumerate(attempts):
+                        if attempt.get("attempt-id") == current_attempt.get("attempt-id"):
+                            error_info["current_attempt_index"] = i
+                            break
+                            
+                save_run_failure(cursor, run_id, attempts, current_attempt, error_info)
                 db_conn.commit()
                 
                 # Provide resumption instructions to the user
