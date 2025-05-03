@@ -4,6 +4,21 @@ import argparse
 from datetime import datetime
 import psycopg2
 import re
+import traceback
+import sys
+
+# Global variable to track the current attempt being processed
+_current_attempt = None
+
+def set_current_attempt(attempt):
+    """Set the current attempt being processed globally"""
+    global _current_attempt
+    _current_attempt = attempt
+
+def get_current_attempt():
+    """Get the current attempt being processed"""
+    global _current_attempt
+    return _current_attempt
 
 def is_valid_uuid(uuid_string):
     """
@@ -110,3 +125,97 @@ def complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, 
     db_conn.commit()
     cursor.close()
     db_conn.close()
+
+def save_run_failure(cursor, run_id, current_attempt, error_info):
+    """
+    Save information about a run failure to the database.
+    
+    Args:
+        cursor: Database cursor
+        run_id: The ID of the run that failed
+        current_attempt: Information about the attempt that was in progress during failure,
+                        or None if no attempt was in progress
+        error_info: Dictionary containing error details (type, message, traceback, etc.)
+    """
+    # Create a failure info object containing error information and the current attempt
+    failure_info = {
+        "error_type": error_info.get("error_type", "Unknown"),
+        "error_message": error_info.get("error_message", "No message"),
+        "traceback": error_info.get("traceback", "No traceback"),
+        "current_attempt": current_attempt
+    }
+    
+    # Save the failure info to the database
+    q.save_run_failure(cursor, run_id, failure_info)
+    
+    # Print error information
+    print("\n### SYSTEM ERROR: An uncaught exception occurred")
+    print(f"Error type: {failure_info['error_type']}")
+    print(f"Error message: {failure_info['error_message']}")
+    print("The error has been recorded in the database.")
+
+def run_with_error_handling(provider, main_function):
+    """
+    Run a provider's main function with centralized error handling.
+    
+    This function handles the entire lifecycle of a benchmark run:
+    1. Sets up the run using start_run
+    2. Calls the provider's main function
+    3. Completes the run when successful
+    4. Catches and logs any exceptions to the database
+    
+    Args:
+        provider: String identifying the provider (e.g., "openai", "anthropic")
+        main_function: Function that implements the provider's benchmark logic.
+                       It should take (config, db_conn, cursor, run_id, attempts, start_time)
+                       and return (postfn, total_call_count, config) for run completion.
+    """
+    config = None
+    db_conn = None
+    cursor = None
+    run_id = None
+    attempts = None
+    start_time = None
+    
+    try:
+        # Start the run
+        config, db_conn, cursor, run_id, attempts, start_time = start_run(provider)
+        
+        # Call the provider's main function, which should return info needed for completion
+        postfn, total_call_count, _ = main_function(config, db_conn, cursor, run_id, attempts, start_time)
+        
+        # Complete the run
+        complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, config)
+        
+    except Exception as e:
+        # Capture error information
+        error_type = type(e).__name__
+        error_message = str(e)
+        trace_info = traceback.format_exc()
+        
+        print(f"\n### SYSTEM ERROR: {error_type}: {error_message}")
+        
+        # Save error information to database if we have a connection
+        if db_conn and cursor and run_id:
+            error_info = {
+                "error_type": error_type,
+                "error_message": error_message,
+                "traceback": trace_info
+            }
+            
+            try:
+                # Get the current attempt from our global tracker
+                current_attempt = get_current_attempt()
+                save_run_failure(cursor, run_id, current_attempt, error_info)
+                db_conn.commit()
+            except Exception as save_error:
+                print(f"\n### SYSTEM ERROR: Failed to save error information: {save_error}")
+            finally:
+                try:
+                    cursor.close()
+                    db_conn.close()
+                except:
+                    pass
+        
+        # Re-raise the exception to exit with error
+        raise

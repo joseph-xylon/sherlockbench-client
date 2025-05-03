@@ -56,3 +56,25 @@ def save_run_result(cursor, run_id, start_time, score, percent, total_call_count
 )
     cursor.execute(str(update_query))
     cursor.connection.commit() # Commit after saving run result
+
+def save_run_failure(cursor, run_id, failure_info):
+    """
+    Save information about a run failure to the database.
+    
+    Args:
+        cursor: Database cursor
+        run_id: The ID of the run that failed
+        failure_info: Dictionary containing information about the failure
+                     (will be stored as JSON in the database)
+    """
+    runs = Table("runs")
+    
+    # Calculate total run time up to the failure
+    update_query = (
+        Query.update(runs)
+        .set(runs.failure_info, json.dumps(failure_info))
+        .where(runs.id == run_id)
+    )
+    
+    cursor.execute(str(update_query))
+    cursor.connection.commit() # Commit after saving failure info
