@@ -55,16 +55,15 @@ def get_failed_run(cursor, run_id):
         
     run_id, model_identifier, benchmark_version, config_json, failure_info_json = result
     
-    # Parse the JSON fields
-    config = json.loads(config_json)
-    failure_info = json.loads(failure_info_json)
+    # The psycopg2 driver already converts JSONB columns to Python dictionaries,
+    # so no need to call json.loads()
     
     return {
         "id": run_id,
         "model_identifier": model_identifier,
         "benchmark_version": benchmark_version,
-        "config": config,
-        "failure_info": failure_info
+        "config": config_json,
+        "failure_info": failure_info_json
     }
 
 def get_completed_attempts(cursor, run_id):

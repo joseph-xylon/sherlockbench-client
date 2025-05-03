@@ -256,11 +256,11 @@ def reset_attempt(config, run_id, attempt_id):
     """
     try:
         # Call the reset-attempt API endpoint
-        response = post(config["base-url"], None, "developer/reset-attempt", {
-            "run-id": str(run_id),
-            "attempt-id": str(attempt_id)
-        })
-        
+        response = post(config["base-url"],
+                        str(run_id),
+                        "developer/reset-attempt",
+                        {"attempt-id": str(attempt_id)})
+
         if response.get("status") == "success":
             print(f"\n### SYSTEM: Successfully reset attempt {attempt_id}")
             return True
@@ -329,8 +329,8 @@ def run_with_error_handling(provider, main_function):
                 
                 # Provide resumption instructions to the user
                 print("\n### SYSTEM INFO: Run failed. To resume this run, use one of the following:")
-                print(f"  python -m sherlockbench_{provider}.main {run_id} --resume=skip   # Skip the failed attempt")
-                print(f"  python -m sherlockbench_{provider}.main {run_id} --resume=retry  # Retry the failed attempt")
+                print(f"  sherlockbench_{provider} {run_id} --resume=skip   # Skip the failed attempt")
+                print(f"  sherlockbench_{provider} {run_id} --resume=retry  # Retry the failed attempt")
                 
             except Exception as save_error:
                 print(f"\n### SYSTEM ERROR: Failed to save error information: {save_error}")
