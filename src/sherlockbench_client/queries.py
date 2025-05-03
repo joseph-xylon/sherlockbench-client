@@ -1,6 +1,7 @@
-from pypika import Query, Table
+from pypika import Query, Table, Field
 from datetime import datetime
 import json
+import uuid
 
 def create_run(cursor, config_non_sensitive, run_id, benchmark_version):
     start_time = datetime.now()
@@ -15,6 +16,81 @@ def create_run(cursor, config_non_sensitive, run_id, benchmark_version):
     insert_query = Query.into(runs).columns(*run_data.keys()).insert(*run_data.values())
     cursor.execute(str(insert_query))
     cursor.connection.commit() # Commit after creating run
+
+def get_failed_run(cursor, run_id):
+    """
+    Retrieve information about a failed run from the database.
+    
+    Args:
+        cursor: Database cursor
+        run_id: The UUID of the run to check
+        
+    Returns:
+        dict: A dictionary containing run information if it exists and has failure_info,
+              or None if the run doesn't exist or wasn't interrupted
+    """
+    runs = Table("runs")
+    
+    # Check if the run exists and has failure_info
+    query = (
+        Query.from_(runs)
+        .select(
+            runs.id, 
+            runs.model_identifier, 
+            runs.benchmark_version,
+            runs.config, 
+            runs.failure_info
+        )
+        .where(
+            (runs.id == str(run_id)) & 
+            (runs.failure_info.notnull())
+        )
+    )
+    
+    cursor.execute(str(query))
+    result = cursor.fetchone()
+    
+    if not result:
+        return None
+        
+    run_id, model_identifier, benchmark_version, config_json, failure_info_json = result
+    
+    # Parse the JSON fields
+    config = json.loads(config_json)
+    failure_info = json.loads(failure_info_json)
+    
+    return {
+        "id": run_id,
+        "model_identifier": model_identifier,
+        "benchmark_version": benchmark_version,
+        "config": config,
+        "failure_info": failure_info
+    }
+
+def get_completed_attempts(cursor, run_id):
+    """
+    Retrieve a list of completed attempts for a run.
+    
+    Args:
+        cursor: Database cursor
+        run_id: The UUID of the run to check
+        
+    Returns:
+        list: A list of attempt IDs that have been completed
+    """
+    attempts = Table("attempts")
+    
+    query = (
+        Query.from_(attempts)
+        .select(attempts.id)
+        .where(attempts.run_id == str(run_id))
+    )
+    
+    cursor.execute(str(query))
+    results = cursor.fetchall()
+    
+    # Extract the attempt IDs
+    return [str(result[0]) for result in results]
 
 def add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id):
     attempt_data = {"id": attempt_id,

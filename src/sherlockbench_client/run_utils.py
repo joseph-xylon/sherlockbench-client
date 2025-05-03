@@ -6,6 +6,7 @@ import psycopg2
 import re
 import traceback
 import sys
+import uuid
 
 # Global variable to track the current attempt being processed
 _current_attempt = None
@@ -40,11 +41,13 @@ def start_run(provider):
        - establish db connection
        - contact the server to start the run
        - add the run info to the db
+       - handle resuming from interrupted runs
     """
 
     parser = argparse.ArgumentParser(description="Run SherlockBench with a required argument.")
     parser.add_argument("arg", nargs="?", help="The id of an existing run, or the id of a problem-set. Use 'list' to see available problem sets.")
     parser.add_argument("--attempts-per-problem", type=int, help="Number of attempts per problem")
+    parser.add_argument("--resume", choices=["skip", "retry"], help="How to handle resuming from a failed run: 'skip' the failed attempt, or 'retry' it")
 
     args = parser.parse_args()
     
@@ -73,38 +76,123 @@ def start_run(provider):
         
         exit(0)
 
-    # connect to postgresql
+    # Connect to postgresql
     db_conn = psycopg2.connect(config["postgres-url"])
     cursor = db_conn.cursor()
 
-    subset = config.get("subset")  # none if key is missing
-    post_data = {"client-id": f"{provider}/{config['model']}"}
-
-    if subset:
-        post_data["subset"] = subset
-
-    if args.attempts_per_problem:
-        post_data["attempts-per-problem"] = args.attempts_per_problem
-
-    if is_valid_uuid(args.arg):
-        post_data["existing-run-id"] = args.arg
-
-    else:
-        post_data["problem-set"] = args.arg
+    # Check if this is an existing run ID
+    is_uuid = is_valid_uuid(args.arg)
+    run_id = args.arg if is_uuid else None
     
-    run_id, run_type, benchmark_version, attempts = destructure(post(config['base-url'],
-                                                                     None,
-                                                                     "start-run",
-                                                                     post_data),
-                                                                "run-id", "run-type", "benchmark-version", "attempts")
-
-    print(f"Starting {run_type} benchmark with run-id: {run_id}")
-
-    config_non_sensitive["run_type"] = run_type
-
-    # we create the run table now even though we don't have all the data we need yet
-    q.create_run(cursor, config_non_sensitive, run_id, benchmark_version)
+    # Variables used across different execution paths
+    attempts = None
+    benchmark_version = None
+    run_type = None
+    is_resuming = False
     
+    # Handle resuming a failed run
+    if is_uuid and args.resume:
+        # Get the failed run info from the database
+        failed_run = q.get_failed_run(cursor, run_id)
+        
+        if failed_run:
+            is_resuming = True
+            print(f"\n### SYSTEM: Found interrupted run with id: {run_id}")
+            
+            # Get the failed attempt from the failure info
+            failed_attempt = failed_run.get("failure_info", {}).get("current_attempt")
+            
+            if failed_attempt:
+                attempt_id = failed_attempt.get("attempt-id")
+                
+                if args.resume == "retry" and attempt_id:
+                    # Reset the failed attempt on the server
+                    print(f"\n### SYSTEM: Attempting to reset failed attempt: {attempt_id}")
+                    reset_success = reset_attempt(config, run_id, attempt_id)
+                    
+                    if not reset_success:
+                        print("\n### SYSTEM ERROR: Failed to reset attempt, exiting.")
+                        exit(1)
+                
+                elif args.resume == "skip":
+                    print(f"\n### SYSTEM: Will skip failed attempt: {attempt_id}")
+                    # No need to do anything, we'll just not process this attempt
+            else:
+                print("\n### SYSTEM WARNING: Could not find which attempt failed, will continue from where we left off.")
+                
+            # Get details from the failed run
+            benchmark_version = failed_run.get("benchmark_version")
+            
+            # Update config with info from the failed run
+            config.update(failed_run.get("config", {}))
+            
+            # Get a list of already completed attempts
+            completed_attempts = q.get_completed_attempts(cursor, run_id)
+            
+            # Start the run from the API to get all attempts
+            subset = config.get("subset")  # none if key is missing
+            post_data = {"client-id": f"{provider}/{config['model']}", "existing-run-id": run_id}
+            
+            if subset:
+                post_data["subset"] = subset
+                
+            if args.attempts_per_problem:
+                post_data["attempts-per-problem"] = args.attempts_per_problem
+                
+            run_id, run_type, benchmark_version, all_attempts = destructure(
+                post(config['base-url'], None, "start-run", post_data),
+                "run-id", "run-type", "benchmark-version", "attempts"
+            )
+            
+            print(f"Resuming {run_type} benchmark with run-id: {run_id}")
+            
+            # Filter out attempts that have already been completed
+            attempts = []
+            for attempt in all_attempts:
+                if attempt["attempt-id"] not in completed_attempts:
+                    attempts.append(attempt)
+                    
+            # If we're skipping the failed attempt, remove it from the attempts list
+            if args.resume == "skip" and failed_attempt:
+                attempts = [a for a in attempts if a.get("attempt-id") != failed_attempt.get("attempt-id")]
+                
+            print(f"Found {len(completed_attempts)} completed attempts")
+            print(f"Remaining attempts to process: {len(attempts)}")
+        else:
+            print(f"\n### SYSTEM: No interrupted run found with id: {run_id}")
+            is_resuming = False
+    
+    # Handle normal run (not resuming)
+    if not is_resuming:
+        subset = config.get("subset")  # none if key is missing
+        post_data = {"client-id": f"{provider}/{config['model']}"}
+
+        if subset:
+            post_data["subset"] = subset
+
+        if args.attempts_per_problem:
+            post_data["attempts-per-problem"] = args.attempts_per_problem
+
+        if is_uuid:
+            post_data["existing-run-id"] = run_id
+        else:
+            post_data["problem-set"] = args.arg
+        
+        run_id, run_type, benchmark_version, attempts = destructure(
+            post(config['base-url'], None, "start-run", post_data),
+            "run-id", "run-type", "benchmark-version", "attempts"
+        )
+
+        print(f"Starting {run_type} benchmark with run-id: {run_id}")
+
+        # Create the run table entry (only for new runs, not resuming)
+        q.create_run(cursor, config, run_id, benchmark_version)
+    
+    # Update config with important run metadata
+    config["run_type"] = run_type
+    config["benchmark_version"] = benchmark_version
+    
+    # Return unified result regardless of path
     return (config, db_conn, cursor, run_id, attempts, datetime.now())
 
 def complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, config):
@@ -153,6 +241,36 @@ def save_run_failure(cursor, run_id, current_attempt, error_info):
     print(f"Error type: {failure_info['error_type']}")
     print(f"Error message: {failure_info['error_message']}")
     print("The error has been recorded in the database.")
+    
+def reset_attempt(config, run_id, attempt_id):
+    """
+    Reset a failed attempt using the API so it can be retried.
+    
+    Args:
+        config: Configuration dictionary containing base URL
+        run_id: UUID of the run
+        attempt_id: UUID of the attempt to reset
+        
+    Returns:
+        bool: True if the reset was successful, False otherwise
+    """
+    try:
+        # Call the reset-attempt API endpoint
+        response = post(config["base-url"], None, "developer/reset-attempt", {
+            "run-id": str(run_id),
+            "attempt-id": str(attempt_id)
+        })
+        
+        if response.get("status") == "success":
+            print(f"\n### SYSTEM: Successfully reset attempt {attempt_id}")
+            return True
+        else:
+            print(f"\n### SYSTEM ERROR: Failed to reset attempt: {response.get('message', 'Unknown error')}")
+            return False
+            
+    except Exception as e:
+        print(f"\n### SYSTEM ERROR: Failed to reset attempt: {str(e)}")
+        return False
 
 def run_with_error_handling(provider, main_function):
     """
@@ -208,6 +326,12 @@ def run_with_error_handling(provider, main_function):
                 current_attempt = get_current_attempt()
                 save_run_failure(cursor, run_id, current_attempt, error_info)
                 db_conn.commit()
+                
+                # Provide resumption instructions to the user
+                print("\n### SYSTEM INFO: Run failed. To resume this run, use one of the following:")
+                print(f"  python -m sherlockbench_{provider}.main {run_id} --resume=skip   # Skip the failed attempt")
+                print(f"  python -m sherlockbench_{provider}.main {run_id} --resume=retry  # Retry the failed attempt")
+                
             except Exception as save_error:
                 print(f"\n### SYSTEM ERROR: Failed to save error information: {save_error}")
             finally:
