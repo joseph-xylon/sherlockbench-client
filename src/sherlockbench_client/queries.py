@@ -4,6 +4,7 @@ import json
 import uuid
 from pprint import pprint
 
+
 def create_run(cursor, config_non_sensitive, run_id, benchmark_version):
     start_time = datetime.now()
     run_data = {"id": run_id,
