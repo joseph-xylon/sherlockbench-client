@@ -7,6 +7,7 @@ import re
 import traceback
 import sys
 import uuid
+from pprint import pprint
 
 # Global variable to track the current attempt being processed
 _current_attempt = None
@@ -127,28 +128,22 @@ def process_remaining_attempts(cursor, run_id, failure_info, failed_attempt, res
     # Get a list of already completed attempts
     completed_attempts = q.get_completed_attempts(cursor, run_id)
 
-    # Extract all_attempts and current_attempt_index from failure_info
-    all_attempts, current_attempt_index = destructure(
-        failure_info, "all_attempts", "current_attempt_index"
-    )
+    all_attempts = failure_info["all_attempts"]
 
     if not all_attempts:
         print("\n### SYSTEM ERROR: Could not find the list of attempts in failure info")
         print("This may be because the run was started before the update to save all attempts")
         print("Please use the --retry-specific-attempt=<attempt-id> option instead")
         sys.exit(1)
-        
-    if current_attempt_index is not None and all_attempts:
-        print(f"Failed at attempt index {current_attempt_index} of {len(all_attempts)}")
 
     # Filter out attempts that have already been completed
     attempts = []
     for attempt in all_attempts:
-        if "attempt-id" in attempt and attempt["attempt-id"] not in completed_attempts:
+        if attempt["attempt-id"] not in completed_attempts:
             attempts.append(attempt)
 
     # If we're skipping the failed attempt, remove it from the attempts list
-    if resume_mode == "skip" and failed_attempt:
+    if resume_mode == "skip":
         attempts = [a for a in attempts if a["attempt-id"] != failed_attempt["attempt-id"]]
 
     print(f"Found {len(completed_attempts)} completed attempts")
@@ -371,13 +366,6 @@ def run_with_error_handling(provider, main_function):
             try:
                 # Get the current attempt from our global tracker
                 current_attempt = get_current_attempt()
-                
-                # Also capture the index of the current attempt in the attempts list for resuming
-                if current_attempt and attempts:
-                    for i, attempt in enumerate(attempts):
-                        if attempt.get("attempt-id") == current_attempt["attempt-id"]:
-                            error_info["current_attempt_index"] = i
-                            break
                             
                 save_run_failure(cursor, run_id, attempts, current_attempt, error_info)
                 db_conn.commit()
