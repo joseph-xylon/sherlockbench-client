@@ -230,6 +230,13 @@ def complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, 
     print("Final score:", score["numerator"], "/", score["denominator"])
     print("Percent:", percent)
     
+    # Calculate and display pass@k if we have multiple attempts per problem
+    pass_at_k, k, problems_passed, total_problems = q.calculate_pass_at_k(cursor, run_id)
+    
+    if k > 1:  # Only display pass@k if we have multiple attempts per problem
+        print(f"\nPass@{k} score: {problems_passed}/{total_problems} ({pass_at_k:.2%})")
+        print(f"This means {problems_passed} out of {total_problems} problems had at least one successful attempt out of {k} tries.")
+    
     # Why do database libraries require so much boilerplate?
     db_conn.commit()
     cursor.close()
