@@ -80,31 +80,26 @@ def resume_failed_run(config, cursor, run_id, args):
     failed_run = q.get_failed_run(cursor, run_id)
     assert failed_run
 
-    print(f"\n### SYSTEM: Found interrupted run with id: {run_id}")
-
-    # Extract key values using destructure
     failure_info, benchmark_version, run_config = destructure(
         failed_run, "failure_info", "benchmark_version", "config"
     )
     
-    # Get the failed attempt from the failure info
     failed_attempt = failure_info["current_attempt"]
-    assert failed_attempt
-
     attempt_id = failed_attempt["attempt-id"]
+    run_type = run_config["run_type"]
+
+    print(f"\n### SYSTEM: Found interrupted run with id: {run_id}")
 
     # Handle resume options
     if args.resume == "retry" and attempt_id:
         if not handle_retry_attempt(config, run_id, attempt_id):
             sys.exit(1)
+
     elif args.resume == "skip":
         print(f"\n### SYSTEM: Will skip failed attempt: {attempt_id}")
 
     # Update config with info from the failed run
     config.update(run_config)
-
-    # Get information about the run
-    run_type = run_config.get("run_type", "unknown")
 
     # Get and process remaining attempts
     attempts = process_remaining_attempts(cursor, run_id, failure_info, failed_attempt, args.resume)
@@ -205,11 +200,6 @@ def start_run(provider):
     # Check if this is an existing run ID
     is_uuid = is_valid_uuid(args.arg)
     run_id = args.arg if is_uuid else None
-    
-    # Variables used across different execution paths
-    attempts = None
-    benchmark_version = None
-    run_type = None
     
     # Handle resuming a failed run or starting a new one
     if is_uuid and args.resume:
