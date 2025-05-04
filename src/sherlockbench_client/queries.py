@@ -15,7 +15,7 @@ def create_run(cursor, config_non_sensitive, run_id, benchmark_version):
     runs = Table("runs")
     insert_query = Query.into(runs).columns(*run_data.keys()).insert(*run_data.values())
     cursor.execute(str(insert_query))
-    cursor.connection.commit() # Commit after creating run
+    cursor.connection.commit()
 
 def get_failed_run(cursor, run_id):
     """
@@ -70,12 +70,7 @@ def get_completed_attempts(cursor, run_id):
     """
     Retrieve a list of completed attempts for a run.
     
-    Args:
-        cursor: Database cursor
-        run_id: The UUID of the run to check
-        
-    Returns:
-        list: A list of attempt IDs that have been completed
+    The attempts are only added to the db once completed so this is all of them.
     """
     attempts = Table("attempts")
     
@@ -102,7 +97,7 @@ def add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count
 
     insert_query = Query.into(Table("attempts")).columns(*attempt_data.keys()).insert(*attempt_data.values())
     cursor.execute(str(insert_query))
-    cursor.connection.commit() # Commit after each attempt to ensure data is saved
+    cursor.connection.commit()
 
 def add_problem_names(cursor, problem_names):
     """problem_names is a list of dicts, each containing 'id' and 'function_name'"""
@@ -116,7 +111,7 @@ def add_problem_names(cursor, problem_names):
         )
         cursor.execute(str(update_query))
     
-    cursor.connection.commit() # Commit after updating problem names
+    cursor.connection.commit()
 
 def save_run_result(cursor, run_id, start_time, score, percent, total_call_count):
     runs = Table("runs")
@@ -130,7 +125,7 @@ def save_run_result(cursor, run_id, start_time, score, percent, total_call_count
          .where(runs.id == run_id)
 )
     cursor.execute(str(update_query))
-    cursor.connection.commit() # Commit after saving run result
+    cursor.connection.commit()
 
 def save_run_failure(cursor, run_id, failure_info):
     """
@@ -143,8 +138,7 @@ def save_run_failure(cursor, run_id, failure_info):
                      (will be stored as JSON in the database)
     """
     runs = Table("runs")
-    
-    # Calculate total run time up to the failure
+
     update_query = (
         Query.update(runs)
         .set(runs.failure_info, json.dumps(failure_info))
@@ -152,4 +146,4 @@ def save_run_failure(cursor, run_id, failure_info):
     )
     
     cursor.execute(str(update_query))
-    cursor.connection.commit() # Commit after saving failure info
+    cursor.connection.commit()

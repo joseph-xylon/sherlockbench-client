@@ -94,75 +94,71 @@ def start_run(provider):
     if is_uuid and args.resume:
         # Get the failed run info from the database
         failed_run = q.get_failed_run(cursor, run_id)
+        assert failed_run
+
+        is_resuming = True
+        print(f"\n### SYSTEM: Found interrupted run with id: {run_id}")
+
+        # Extract key values using destructure
+        failure_info, benchmark_version, run_config = destructure(
+            failed_run, "failure_info", "benchmark_version", "config"
+        )
         
-        if failed_run:
-            is_resuming = True
-            print(f"\n### SYSTEM: Found interrupted run with id: {run_id}")
-            
-            # Get the failed attempt from the failure info
-            failed_attempt = failed_run.get("failure_info", {}).get("current_attempt")
-            
-            if failed_attempt:
-                attempt_id = failed_attempt.get("attempt-id")
-                
-                if args.resume == "retry" and attempt_id:
-                    # Reset the failed attempt on the server
-                    print(f"\n### SYSTEM: Attempting to reset failed attempt: {attempt_id}")
-                    reset_success = reset_attempt(config, run_id, attempt_id)
-                    
-                    if not reset_success:
-                        print("\n### SYSTEM ERROR: Failed to reset attempt, exiting.")
-                        exit(1)
-                
-                elif args.resume == "skip":
-                    print(f"\n### SYSTEM: Will skip failed attempt: {attempt_id}")
-                    # No need to do anything, we'll just not process this attempt
-            else:
-                print("\n### SYSTEM WARNING: Could not find which attempt failed, will continue from where we left off.")
-                
-            # Get details from the failed run
-            benchmark_version = failed_run.get("benchmark_version")
-            
-            # Update config with info from the failed run
-            config.update(failed_run.get("config", {}))
-            
-            # Get information about the run
-            run_type = failed_run.get("config", {}).get("run_type", "unknown")
-            
-            # Get a list of already completed attempts
-            completed_attempts = q.get_completed_attempts(cursor, run_id)
-            
-            print(f"Resuming {run_type} benchmark with run-id: {run_id}")
-            
-            # Get the all_attempts array from failure_info
-            all_attempts = failed_run.get("failure_info", {}).get("all_attempts", [])
-            
-            if not all_attempts:
-                print("\n### SYSTEM ERROR: Could not find the list of attempts in failure info")
-                print("This may be because the run was started before the update to save all attempts")
-                print("Please use the --retry-specific-attempt=<attempt-id> option instead")
-                exit(1)
-            
-            # Find where we were in the list of attempts
-            current_attempt_index = failed_run.get("failure_info", {}).get("current_attempt_index")
-            if current_attempt_index is not None and all_attempts:
-                print(f"Failed at attempt index {current_attempt_index} of {len(all_attempts)}")
-            
-            # Filter out attempts that have already been completed
-            attempts = []
-            for attempt in all_attempts:
-                if "attempt-id" in attempt and attempt["attempt-id"] not in completed_attempts:
-                    attempts.append(attempt)
-            
-            # If we're skipping the failed attempt, remove it from the attempts list
-            if args.resume == "skip" and failed_attempt:
-                attempts = [a for a in attempts if a.get("attempt-id") != failed_attempt.get("attempt-id")]
-            
-            print(f"Found {len(completed_attempts)} completed attempts")
-            print(f"Remaining attempts to process: {len(attempts)}")
-        else:
-            print(f"\n### SYSTEM: No interrupted run found with id: {run_id}")
-            is_resuming = False
+        # Get the failed attempt from the failure info
+        failed_attempt = failure_info["current_attempt"]
+        assert failed_attempt
+
+        attempt_id = failed_attempt["attempt-id"]
+
+        if args.resume == "retry" and attempt_id:
+            # Reset the failed attempt on the server
+            print(f"\n### SYSTEM: Attempting to reset failed attempt: {attempt_id}")
+            reset_success = reset_attempt(config, run_id, attempt_id)
+
+            if not reset_success:
+                print("\n### SYSTEM ERROR: Failed to reset attempt, exiting.")
+                sys.exit(1)
+
+        elif args.resume == "skip":
+            print(f"\n### SYSTEM: Will skip failed attempt: {attempt_id}")
+            # No need to do anything, we'll just not process this attempt
+
+        # Update config with info from the failed run
+        config.update(run_config)
+
+        # Get information about the run
+        run_type = run_config.get("run_type", "unknown")
+
+        # Get a list of already completed attempts
+        completed_attempts = q.get_completed_attempts(cursor, run_id)
+
+        print(f"Resuming {run_type} benchmark with run-id: {run_id}")
+
+        # Extract all_attempts and current_attempt_index from failure_info
+        all_attempts, current_attempt_index = destructure(
+            failure_info, "all_attempts", "current_attempt_index"
+        )
+
+        if not all_attempts:
+            print("\n### SYSTEM ERROR: Could not find the list of attempts in failure info")
+            print("This may be because the run was started before the update to save all attempts")
+            print("Please use the --retry-specific-attempt=<attempt-id> option instead")
+            sys.exit(1)
+        if current_attempt_index is not None and all_attempts:
+            print(f"Failed at attempt index {current_attempt_index} of {len(all_attempts)}")
+
+        # Filter out attempts that have already been completed
+        attempts = []
+        for attempt in all_attempts:
+            if "attempt-id" in attempt and attempt["attempt-id"] not in completed_attempts:
+                attempts.append(attempt)
+
+        # If we're skipping the failed attempt, remove it from the attempts list
+        if args.resume == "skip" and failed_attempt:
+            attempts = [a for a in attempts if a["attempt-id"] != failed_attempt["attempt-id"]]
+
+        print(f"Found {len(completed_attempts)} completed attempts")
+        print(f"Remaining attempts to process: {len(attempts)}")
     
     # Handle normal run (not resuming)
     if not is_resuming:
@@ -341,7 +337,7 @@ def run_with_error_handling(provider, main_function):
                 # Also capture the index of the current attempt in the attempts list for resuming
                 if current_attempt and attempts:
                     for i, attempt in enumerate(attempts):
-                        if attempt.get("attempt-id") == current_attempt.get("attempt-id"):
+                        if attempt.get("attempt-id") == current_attempt["attempt-id"]:
                             error_info["current_attempt_index"] = i
                             break
                             
