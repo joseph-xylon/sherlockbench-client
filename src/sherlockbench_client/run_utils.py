@@ -34,16 +34,8 @@ def is_valid_uuid(uuid_string):
     uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
     return bool(uuid_pattern.match(uuid_string))
 
-def start_run(provider):
-    """Various things to get the run started:
-       - parse the args
-       - load the config
-       - establish db connection
-       - contact the server to start the run
-       - add the run info to the db
-       - handle resuming from interrupted runs
-    """
-
+def parse_args():
+    """Parse command line arguments for the SherlockBench run."""
     parser = argparse.ArgumentParser(description="Run SherlockBench with a required argument.")
     parser.add_argument("arg", nargs="?", help="The id of an existing run, or the id of a problem-set. Use 'list' to see available problem sets.")
     parser.add_argument("--attempts-per-problem", type=int, help="Number of attempts per problem")
@@ -56,25 +48,160 @@ def start_run(provider):
         parser.print_help()
         print("\nTip: Use 'list' as the argument to see available problem sets.")
         exit(1)
+        
+    return args
 
+def load_provider_config(provider):
+    """Load configuration for the specified provider."""
     config_raw = load_config("resources/config.yaml")
     config_non_sensitive = {k: v for k, v in config_raw.items() if k != "providers"} | config_raw["providers"][provider]
     config = config_non_sensitive | load_config("resources/credentials.yaml")
+    return config
 
-    # Handle the "list" argument - get and print available problem sets
+def handle_list_command(config):
+    """Handle the 'list' command to show available problem sets."""
+    response = get(config['base-url'], "problem-sets")
+    problem_sets = response.get('problem-sets', {})
+    
+    print("Available problem sets:")
+    print("======================")
+    
+    for category, problems in problem_sets.items():
+        print(f"\n{category}:")
+        for problem in problems:
+            print(f"  - {problem['name']} :: {problem['id']}")
+    
+    sys.exit(0)
+
+def resume_failed_run(config, cursor, run_id, args):
+    """Resume a previously failed run."""
+    # Get the failed run info from the database
+    failed_run = q.get_failed_run(cursor, run_id)
+    assert failed_run
+
+    print(f"\n### SYSTEM: Found interrupted run with id: {run_id}")
+
+    # Extract key values using destructure
+    failure_info, benchmark_version, run_config = destructure(
+        failed_run, "failure_info", "benchmark_version", "config"
+    )
+    
+    # Get the failed attempt from the failure info
+    failed_attempt = failure_info["current_attempt"]
+    assert failed_attempt
+
+    attempt_id = failed_attempt["attempt-id"]
+
+    # Handle resume options
+    if args.resume == "retry" and attempt_id:
+        if not handle_retry_attempt(config, run_id, attempt_id):
+            sys.exit(1)
+    elif args.resume == "skip":
+        print(f"\n### SYSTEM: Will skip failed attempt: {attempt_id}")
+
+    # Update config with info from the failed run
+    config.update(run_config)
+
+    # Get information about the run
+    run_type = run_config.get("run_type", "unknown")
+
+    # Get and process remaining attempts
+    attempts = process_remaining_attempts(cursor, run_id, failure_info, failed_attempt, args.resume)
+    
+    print(f"Resuming {run_type} benchmark with run-id: {run_id}")
+    
+    return run_id, run_type, benchmark_version, attempts
+
+def handle_retry_attempt(config, run_id, attempt_id):
+    """Reset a failed attempt on the server for retry."""
+    print(f"\n### SYSTEM: Attempting to reset failed attempt: {attempt_id}")
+    reset_success = reset_attempt(config, run_id, attempt_id)
+
+    if not reset_success:
+        print("\n### SYSTEM ERROR: Failed to reset attempt, exiting.")
+        return False
+    return True
+
+def process_remaining_attempts(cursor, run_id, failure_info, failed_attempt, resume_mode):
+    """Process the list of attempts and filter out completed or skipped ones."""
+    # Get a list of already completed attempts
+    completed_attempts = q.get_completed_attempts(cursor, run_id)
+
+    # Extract all_attempts and current_attempt_index from failure_info
+    all_attempts, current_attempt_index = destructure(
+        failure_info, "all_attempts", "current_attempt_index"
+    )
+
+    if not all_attempts:
+        print("\n### SYSTEM ERROR: Could not find the list of attempts in failure info")
+        print("This may be because the run was started before the update to save all attempts")
+        print("Please use the --retry-specific-attempt=<attempt-id> option instead")
+        sys.exit(1)
+        
+    if current_attempt_index is not None and all_attempts:
+        print(f"Failed at attempt index {current_attempt_index} of {len(all_attempts)}")
+
+    # Filter out attempts that have already been completed
+    attempts = []
+    for attempt in all_attempts:
+        if "attempt-id" in attempt and attempt["attempt-id"] not in completed_attempts:
+            attempts.append(attempt)
+
+    # If we're skipping the failed attempt, remove it from the attempts list
+    if resume_mode == "skip" and failed_attempt:
+        attempts = [a for a in attempts if a["attempt-id"] != failed_attempt["attempt-id"]]
+
+    print(f"Found {len(completed_attempts)} completed attempts")
+    print(f"Remaining attempts to process: {len(attempts)}")
+    
+    return attempts
+
+def start_new_run(config, cursor, args, provider, is_uuid, run_id):
+    """Start a new benchmark run."""
+    subset = config.get("subset")  # none if key is missing
+    post_data = {"client-id": f"{provider}/{config['model']}"}
+
+    if subset:
+        post_data["subset"] = subset
+
+    if args.attempts_per_problem:
+        post_data["attempts-per-problem"] = args.attempts_per_problem
+
+    if is_uuid:
+        post_data["existing-run-id"] = run_id
+    else:
+        post_data["problem-set"] = args.arg
+    
+    run_id, run_type, benchmark_version, attempts = destructure(
+        post(config['base-url'], None, "start-run", post_data),
+        "run-id", "run-type", "benchmark-version", "attempts"
+    )
+
+    print(f"Starting {run_type} benchmark with run-id: {run_id}")
+
+    # Create the run table entry (only for new runs, not resuming)
+    q.create_run(cursor, config, run_id, benchmark_version)
+    
+    return run_id, run_type, benchmark_version, attempts
+
+def start_run(provider):
+    """Various things to get the run started:
+       - parse the args
+       - load the config
+       - establish db connection
+       - contact the server to start the run
+       - add the run info to the db
+       - handle resuming from interrupted runs
+    """
+    # Parse command line arguments
+    args = parse_args()
+    
+    # Load configuration
+    config = load_provider_config(provider)
+
+    # Handle the "list" argument
     if args.arg == "list":
-        response = get(config['base-url'], "problem-sets")
-        problem_sets = response.get('problem-sets', {})
-        
-        print("Available problem sets:")
-        print("======================")
-        
-        for category, problems in problem_sets.items():
-            print(f"\n{category}:")
-            for problem in problems:
-                print(f"  - {problem['name']} :: {problem['id']}")
-        
-        exit(0)
+        handle_list_command(config)
 
     # Connect to postgresql
     db_conn = psycopg2.connect(config["postgres-url"])
@@ -88,103 +215,14 @@ def start_run(provider):
     attempts = None
     benchmark_version = None
     run_type = None
-    is_resuming = False
     
-    # Handle resuming a failed run
+    # Handle resuming a failed run or starting a new one
     if is_uuid and args.resume:
-        # Get the failed run info from the database
-        failed_run = q.get_failed_run(cursor, run_id)
-        assert failed_run
-
-        is_resuming = True
-        print(f"\n### SYSTEM: Found interrupted run with id: {run_id}")
-
-        # Extract key values using destructure
-        failure_info, benchmark_version, run_config = destructure(
-            failed_run, "failure_info", "benchmark_version", "config"
-        )
-        
-        # Get the failed attempt from the failure info
-        failed_attempt = failure_info["current_attempt"]
-        assert failed_attempt
-
-        attempt_id = failed_attempt["attempt-id"]
-
-        if args.resume == "retry" and attempt_id:
-            # Reset the failed attempt on the server
-            print(f"\n### SYSTEM: Attempting to reset failed attempt: {attempt_id}")
-            reset_success = reset_attempt(config, run_id, attempt_id)
-
-            if not reset_success:
-                print("\n### SYSTEM ERROR: Failed to reset attempt, exiting.")
-                sys.exit(1)
-
-        elif args.resume == "skip":
-            print(f"\n### SYSTEM: Will skip failed attempt: {attempt_id}")
-            # No need to do anything, we'll just not process this attempt
-
-        # Update config with info from the failed run
-        config.update(run_config)
-
-        # Get information about the run
-        run_type = run_config.get("run_type", "unknown")
-
-        # Get a list of already completed attempts
-        completed_attempts = q.get_completed_attempts(cursor, run_id)
-
-        print(f"Resuming {run_type} benchmark with run-id: {run_id}")
-
-        # Extract all_attempts and current_attempt_index from failure_info
-        all_attempts, current_attempt_index = destructure(
-            failure_info, "all_attempts", "current_attempt_index"
-        )
-
-        if not all_attempts:
-            print("\n### SYSTEM ERROR: Could not find the list of attempts in failure info")
-            print("This may be because the run was started before the update to save all attempts")
-            print("Please use the --retry-specific-attempt=<attempt-id> option instead")
-            sys.exit(1)
-        if current_attempt_index is not None and all_attempts:
-            print(f"Failed at attempt index {current_attempt_index} of {len(all_attempts)}")
-
-        # Filter out attempts that have already been completed
-        attempts = []
-        for attempt in all_attempts:
-            if "attempt-id" in attempt and attempt["attempt-id"] not in completed_attempts:
-                attempts.append(attempt)
-
-        # If we're skipping the failed attempt, remove it from the attempts list
-        if args.resume == "skip" and failed_attempt:
-            attempts = [a for a in attempts if a["attempt-id"] != failed_attempt["attempt-id"]]
-
-        print(f"Found {len(completed_attempts)} completed attempts")
-        print(f"Remaining attempts to process: {len(attempts)}")
-    
-    # Handle normal run (not resuming)
-    if not is_resuming:
-        subset = config.get("subset")  # none if key is missing
-        post_data = {"client-id": f"{provider}/{config['model']}"}
-
-        if subset:
-            post_data["subset"] = subset
-
-        if args.attempts_per_problem:
-            post_data["attempts-per-problem"] = args.attempts_per_problem
-
-        if is_uuid:
-            post_data["existing-run-id"] = run_id
-        else:
-            post_data["problem-set"] = args.arg
-        
-        run_id, run_type, benchmark_version, attempts = destructure(
-            post(config['base-url'], None, "start-run", post_data),
-            "run-id", "run-type", "benchmark-version", "attempts"
-        )
-
-        print(f"Starting {run_type} benchmark with run-id: {run_id}")
-
-        # Create the run table entry (only for new runs, not resuming)
-        q.create_run(cursor, config, run_id, benchmark_version)
+        # Resuming a failed run
+        run_id, run_type, benchmark_version, attempts = resume_failed_run(config, cursor, run_id, args)
+    else:
+        # Starting a new run
+        run_id, run_type, benchmark_version, attempts = start_new_run(config, cursor, args, provider, is_uuid, run_id)
     
     # Update config with important run metadata
     config["run_type"] = run_type
