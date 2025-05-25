@@ -16,6 +16,20 @@ I would like you to test my function using the provided tool until you think you
 You may test this function up-to {test_limit} times."""}
     ]
 
+def make_decision_messages(examples_text):
+    return [
+        {"role": "developer", "content":
+         """You are a competent and alert chatbot. You will help to investigate a mystery function."""},
+        {"role": "user", "content":
+         f"""I have a mystery function and I want you to figure out what it does.
+
+Here are some examples of the function's input and output:
+
+{examples_text}
+
+Based on these examples, please determine what the function does and summarise."""}
+    ]
+
 def make_verification_message(f_input):
     formatted = f_input
     

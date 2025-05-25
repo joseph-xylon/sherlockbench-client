@@ -3,7 +3,7 @@ from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRate
 from sherlockbench_client import run_with_error_handling, set_current_attempt
 from pprint import pprint
 
-from .prompts import make_initial_messages
+from .prompts import make_initial_messages, make_decision_messages
 from .investigate import investigate
 from .verify import verify
 
@@ -17,6 +17,17 @@ def create_completion(client, **kwargs):
         **kwargs
     )
 
+def decision(completionfn, messages, printer):
+    completion = completionfn(messages=messages)
+
+    response = completion.choices[0]
+    message = response.message.content
+
+    printer.print("\n--- LLM ---")
+    printer.indented_print(message)
+
+    return messages
+
 def investigate_and_verify(postfn, completionfn, config, attempt, run_id, cursor):
     attempt_id, arg_spec, test_limit = destructure(attempt, "attempt-id", "arg-spec", "test-limit")
 
@@ -29,8 +40,14 @@ def investigate_and_verify(postfn, completionfn, config, attempt, run_id, cursor
     printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
 
     messages = make_initial_messages(test_limit)
-    messages, tool_call_count = investigate(config, postfn, completionfn, messages,
-                                            printer, attempt_id, arg_spec, test_limit)
+    tool_calls, tool_call_count = investigate(config, postfn, completionfn, messages,
+                                              printer, attempt_id, arg_spec, test_limit)
+
+    printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
+    printer.print(tool_calls)
+
+    messages = make_decision_messages(tool_calls)
+    messages = decision(completionfn, messages, printer)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
     verification_result = verify(config, postfn, completionfn, messages, printer, attempt_id)
@@ -65,10 +82,10 @@ def run_benchmark(config, db_conn, cursor, run_id, attempts, start_time):
     for attempt in attempts:
         # Track the current attempt for error handling
         set_current_attempt(attempt)
-        
+
         # Process the attempt
         investigate_and_verify(postfn, completionfn, config, attempt, run_id, cursor)
-        
+
         # Clear the current attempt since we've completed processing it
         set_current_attempt(None)
 

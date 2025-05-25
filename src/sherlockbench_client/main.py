@@ -40,10 +40,11 @@ def post(base_url, run_id, path, data):
             if "Invalid exam set:" in response.json()["error"]:
                 sys.exit()
 
-            return {"output": response.json()["error"]}
+            return {"output": response.json()["error"],
+                    "error": True}
 
-
-    return response.json()
+    # this is how you return a dict with something appended in Python
+    return {**response.json(), "error": False}
 
 def get(base_url, path):
     try:

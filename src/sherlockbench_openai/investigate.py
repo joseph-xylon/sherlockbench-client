@@ -1,4 +1,5 @@
 import json
+from sherlockbench_client import destructure
 from pydantic import BaseModel
 
 def list_to_map(input_list):
@@ -25,22 +26,44 @@ def print_tool_call(printer, args, result):
 
     printer.indented_print(", ".join(map(str, clean_args)), "→", result)
 
-def handle_tool_call(postfn, printer, attempt_id, call):
-    arguments = json.loads(call.function.arguments)
-    args_norm = normalize_args(arguments)
+class ToolCallHandler:
+    def __init__(self, postfn, printer, attempt_id):
+        self.postfn = postfn
+        self.printer = printer
+        self.attempt_id = attempt_id
+        self.call_history = []
 
-    fnoutput = postfn("test-function", {"attempt-id": attempt_id,
-                                        "args": args_norm})["output"]
+    def handle_tool_call(self, call):
+        arguments = json.loads(call.function.arguments)
+        args_norm = normalize_args(arguments)
 
-    print_tool_call(printer, args_norm, fnoutput)
+        fnoutput, fnerror = destructure(self.postfn("test-function", {"attempt-id": self.attempt_id,
+                                                                      "args": args_norm}),
+                                        "output",
+                                        "error")
 
-    function_call_result_message = {
-        "role": "tool",
-        "content": json.dumps(fnoutput),
-        "tool_call_id": call.id
-    }
+        print_tool_call(self.printer, args_norm, fnoutput)
 
-    return function_call_result_message
+        if not fnerror:
+            self.call_history.append((args_norm, fnoutput))
+
+        function_call_result_message = {
+            "role": "tool",
+            "content": json.dumps(fnoutput),
+            "tool_call_id": call.id
+        }
+
+        return function_call_result_message
+
+    def get_call_history(self):
+        return self.call_history
+
+    def format_call_history(self):
+        lines = []
+        for args, output in self.call_history:
+            args_str = "(" + ", ".join(map(str, args)) + ")"
+            lines.append(f"{args_str} → {output}")
+        return "\n".join(lines)
 
 class NoToolException(Exception):
     """When the LLM doesn't use it's tool when it was expected to."""
@@ -68,6 +91,8 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
         }
     ]
 
+    tool_handler = ToolCallHandler(postfn, printer, attempt_id)
+
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
@@ -87,7 +112,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
                              "tool_calls": tool_calls})
 
             for call in tool_calls:
-                messages.append(handle_tool_call(postfn, printer, attempt_id, call))
+                messages.append(tool_handler.handle_tool_call(call))
 
                 tool_call_counter += 1
 
@@ -97,6 +122,6 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
             messages.append({"role": "assistant",
                              "content": message})
 
-            return (messages, tool_call_counter)
+            return (tool_handler.format_call_history(), tool_call_counter)
 
     raise MsgLimitException("Investigation loop overrun.")
