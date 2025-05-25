@@ -1,6 +1,11 @@
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q
+from datetime import datetime
+from .prompts import make_initial_messages, make_decision_messages
+
 import json
 from sherlockbench_client import destructure
 from pydantic import BaseModel
+from .verify import verify
 
 def list_to_map(input_list):
     """openai doesn't like arrays much so just assign arbritray keys"""
@@ -125,3 +130,43 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
             return (tool_handler.format_call_history(), tool_call_counter)
 
     raise MsgLimitException("Investigation loop overrun.")
+
+def decision(completionfn, messages, printer):
+    completion = completionfn(messages=messages)
+
+    response = completion.choices[0]
+    message = response.message.content
+
+    printer.print("\n--- LLM ---")
+    printer.indented_print(message)
+
+    return messages
+
+def investigate_decide_verify(postfn, completionfn, config, attempt, run_id, cursor):
+    attempt_id, arg_spec, test_limit = destructure(attempt, "attempt-id", "arg-spec", "test-limit")
+
+    start_time = datetime.now()
+    start_api_calls = completionfn.total_call_count
+
+    # setup the printer
+    printer = AccumulatingPrinter()
+
+    printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
+
+    messages = make_initial_messages(test_limit)
+    tool_calls, tool_call_count = investigate(config, postfn, completionfn, messages,
+                                              printer, attempt_id, arg_spec, test_limit)
+
+    printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
+    printer.print(tool_calls)
+
+    messages = make_decision_messages(tool_calls)
+    messages = decision(completionfn, messages, printer)
+
+    printer.print("\n### SYSTEM: verifying function with args", arg_spec)
+    verification_result = verify(config, postfn, completionfn, messages, printer, attempt_id)
+
+    time_taken = (datetime.now() - start_time).total_seconds()
+    q.add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id)
+
+    return verification_result
