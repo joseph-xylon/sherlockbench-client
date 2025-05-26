@@ -45,19 +45,14 @@ def run_benchmark(executor, config, db_conn, cursor, run_id, attempts, start_tim
                                   backoff_exceptions=[(APITimeoutError, 300),
                                                       (InternalServerError, 60)])
 
+    assert len(attempts) == 100
+
     executor_p = partial(executor, postfn, completionfn, config, run_id, cursor)
+    chunk_size = 10
+    for i in range(0, 100, chunk_size):
+        chunk = attempts[i:i + chunk_size]
 
-    for i, attempt in enumerate(attempts, 1):
-        print_progress_with_estimate(i, len(attempts), start_time)
-
-        # Track the current attempt for error handling
-        set_current_attempt(attempt)
-
-        # Process the attempt
-        executor_p(attempt)
-
-        # Clear the current attempt since we've completed processing it
-        set_current_attempt(None)
+        executor_p(chunk, i)
 
     # Return the values needed for run completion
     return postfn, completionfn.total_call_count, config
