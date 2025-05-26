@@ -188,9 +188,10 @@ def run_with_error_handling(provider, main_function):
                     db_conn.commit()
 
                     # Provide resumption instructions to the user
+                    script_name = sys.argv[0]
                     print("\n### SYSTEM INFO: Run failed. To resume this run, use one of the following:")
-                    print(f"  sherlockbench_{provider} {run_id} --resume=skip   # Skip the failed attempt")
-                    print(f"  sherlockbench_{provider} {run_id} --resume=retry  # Retry the failed attempt")
+                    print(f"  {script_name} {run_id} --resume=skip   # Skip the failed attempt")
+                    print(f"  {script_name} {run_id} --resume=retry  # Retry the failed attempt")
 
                 except Exception as save_error:
                     print(f"\n### SYSTEM ERROR: Failed to save error information: {save_error}")

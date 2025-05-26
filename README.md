@@ -8,15 +8,10 @@ reasonable but allowing to accommodate the idiosyncrasies for each provider.
 Essentially the clients are sitting in-between two APIs. The LLM provider's API
 and the SherlockBench API.
 
-If you wonder why we didn't "just use LangChain" - in my experience LangChain
-does not have stable support for tool calling and structured outputs accross
-different providers, and isn't maintained as pro-actively as I'd like.
-
 ## Main Website
 The project homepage: https://sherlockbench.com
 
 ## Running
-
 If you want to run this benchmark yourself, you will need:
 - An account and API key for whichever LLM provider you want to use
 - A computer to install Python and PostgreSQL on. Postgres is how it stores analytics for each run
@@ -44,34 +39,63 @@ A `resources/config.yaml` should look like this (uncomment sections as appropria
 ---
 
 # the base URL of the SherlockBench API
-base-url: "http://0.0.0.0:3000/api/"
-#base-url: "https://api.sherlockbench.com/api/"
+#base-url: "http://0.0.0.0:3000/api/"
+base-url: "https://api.sherlockbench.com/api/"
 
 providers:
   openai:
-    model: "gpt-4o-mini-2024-07-18"
-    #model: "gpt-4o-2024-08-06"
-    #model: "o3-mini-2025-01-31"
-    #reasoning_effort: "medium"
-    #temperature: 0.6
-    rate-limit: 5
-
-  anthropic:
-    model: "claude-3-5-haiku-20241022"
-    #model: "claude-3-5-sonnet-20241022"
-    #temperature: 0.9
     rate-limit: 10
+
+    model: "gpt-4.1-mini-2025-04-14"
+    #model: "o4-mini-2025-04-16"
+    #reasoning_effort: "medium"  # low, medium or high
+    
+    #temperature: 0.5
+
+anthropic:
+    rate-limit: 10
+
+    model: "claude-3-5-haiku-20241022"
+    # special postfix +thinking enables Anthropic's "extended thinking"
+    #model: "claude-sonnet-4-20250514+thinking"
+    #model: "claude-opus-4-20250514+thinking"
+    
+    #temperature: 0.8
 
   google:
-    model: "gemini-2.0-flash"
-    #model: "gemini-2.0-pro-exp-02-05"
-    #temperature: 0.9
     rate-limit: 10
 
+    #model: "gemini-2.0-flash"
+    model: "gemini-2.5-flash-preview-05-20"
+    #model: "gemini-2.5-pro-preview-05-06"
+    #temperature: 0.0
+
   fireworks:
+    rate-limit: 10
+
     model: "accounts/fireworks/models/llama-v3p1-405b-instruct"
     #temperature: 0.9
+    
+    # Qwen recommended settings: https://huggingface.co/Qwen/Qwen3-235B-A22B
+    model: "accounts/fireworks/models/qwen3-235b-a22b"
+    max_tokens: 32768
+    temperature: 0.6
+    extra_body:
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+
+  xai:
     rate-limit: 10
+
+    model: "grok-3-beta"
+    #model: "grok-3-mini-beta"
+    #reasoning_effort: "high"  # high or low
+
+  deepseek:
+    rate-limit: 30
+
+    model: "deepseek-chat"
 
 ```
 
@@ -85,6 +109,9 @@ api-keys:
   openai: ""
   google: ""
   fireworks: ""
+  xai: ""
+  deepseek: ""
+  mistral: ""
 ```
 
 Running it should be essentially:
@@ -97,6 +124,3 @@ Running it should be essentially:
 There are two tables in the database;
 - runs stores general information about the test run and it's results
 - attempts stores the logs for the individual attempts and some metadata
-
-### Example queries
-If you know SQL you can do some analysis of the results.

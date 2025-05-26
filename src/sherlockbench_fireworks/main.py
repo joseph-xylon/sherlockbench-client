@@ -78,9 +78,6 @@ def run_benchmark(config, db_conn, cursor, run_id, attempts, start_time):
     # Return the values needed for run completion
     return postfn, completionfn.total_call_count, config
 
-def main():
+def two_phase():
     # Use the centralized error handling function
     run_with_error_handling("fireworks", run_benchmark)
-
-if __name__ == "__main__":
-    main()
