@@ -4,7 +4,7 @@ from datetime import datetime
 from functools import partial
 
 from google.genai import types
-from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, set_current_attempt
 
 from .investigate_verify import generate_schema, normalize_args, format_tool_call, format_inputs
 from .prompts import system_message, make_initial_message, make_decision_message
@@ -167,10 +167,9 @@ def decision(completionfn, messages, printer):
 
     return messages
 
-def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, attempt):
-    attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
+def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, attempts, i):
+    attempt_id, arg_spec, output_type, test_limit = destructure(attempts[0], "attempt-id", "arg-spec", "output-type", "test-limit")
 
-    start_time = datetime.now()
     start_api_calls = completionfn.total_call_count
 
     # setup the printer
@@ -181,16 +180,24 @@ def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, atte
     messages = [save_message("user", make_initial_message(test_limit))]
     tool_calls, tool_call_count = investigate(config, postfn, completionfn, messages,
                                               printer, attempt_id, arg_spec, output_type, test_limit)
-    printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
-    printer.print(tool_calls)
 
-    messages = [save_message("user", make_decision_message(tool_calls))]
-    messages = decision(completionfn, messages, printer)
+    for idx, attempt in enumerate(attempts, start=1):
+        # Track the current attempt for error handling
+        set_current_attempt(attempt)
 
-    printer.print("\n### SYSTEM: verifying function with args", arg_spec)
-    verification_result = verify(config, postfn, completionfn, messages, printer, attempt_id, partial(format_inputs, arg_spec))
+        attempt_id = attempt["attempt-id"]
+        start_time = datetime.now()
 
-    time_taken = (datetime.now() - start_time).total_seconds()
-    q.add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id)
+        printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
+        printer.print(tool_calls)
+
+        messages = [save_message("user", make_decision_message(tool_calls))]
+        messages = decision(completionfn, messages, printer)
+
+        printer.print(f"\n### SYSTEM: verifying function i{i}q{idx}")
+        verification_result = verify(config, postfn, completionfn, messages, printer, attempt_id, partial(format_inputs, arg_spec))
+
+        time_taken = (datetime.now() - start_time).total_seconds()
+        q.add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id, {"i": i, "v": idx})
 
     return verification_result
