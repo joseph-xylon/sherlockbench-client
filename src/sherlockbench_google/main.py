@@ -57,11 +57,11 @@ def run_benchmark(executor, config, db_conn, cursor, run_id, attempts, start_tim
                                   llmfn=completionfn,
                                   backoff_exceptions=[(errors.ServerError, 300), (errors.ClientError, 900)])
 
-    assert len(attempts) == 100
+    assert len(attempts) == 200
 
     executor_p = partial(executor, postfn, completionfn, config, run_id, cursor)
-    chunk_size = 10
-    for i in range(0, 100, chunk_size):
+    chunk_size = 20
+    for i in range(0, 200, chunk_size):
         chunk = attempts[i:i + chunk_size]
 
         executor_p(chunk, i)
