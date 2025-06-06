@@ -59,7 +59,6 @@ def run_benchmark(executor, config, db_conn, cursor, run_id, attempts, start_tim
     executor_p = partial(executor, postfn, completionfn, config, run_id, cursor)
     chunk_size = 20
     for i in range(0, 200, chunk_size):
-
         chunk = attempts[i:i + chunk_size]
 
         executor_p(chunk, i)
