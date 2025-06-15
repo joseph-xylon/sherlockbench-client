@@ -156,11 +156,10 @@ def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, atte
     # setup the printer
     printer = AccumulatingPrinter()
 
-    printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
+    printer.print("\n### SYSTEM: getting random investigation for args", arg_spec)
 
-    messages = make_initial_message(test_limit)
-    tool_calls, tool_call_count = investigate(config, postfn, completionfn, messages,
-                                              printer, attempt_id, arg_spec, output_type, test_limit)
+    tool_calls = postfn("developer/random-investigation", {"attempt-id": attempt_id})["output"]
+    tool_call_count = test_limit
 
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
