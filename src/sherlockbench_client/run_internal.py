@@ -3,21 +3,8 @@ import types
 from datetime import datetime
 from pprint import pprint
 
-from .main import load_config, destructure, post
+from .main import destructure, post
 from . import queries as q
-
-def load_provider_config(provider, model_name):
-    """Load configuration for the specified provider."""
-    config_raw = load_config("resources/config.yaml")
-
-    # only this provider
-    config_non_sensitive = {k: v for k, v in config_raw.items() if k != "providers"} | config_raw["providers"][provider][model_name]
-
-    # add credentials
-    config = config_non_sensitive | load_config("resources/credentials.yaml")
-
-    return config_non_sensitive, config
-
 
 def resume_failed_run(config, cursor, run_id, args):
     """Resume a previously failed run."""

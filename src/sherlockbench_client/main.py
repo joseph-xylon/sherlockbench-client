@@ -9,7 +9,7 @@ from requests import HTTPError
 from pydantic import BaseModel
 from typing import Callable
 from datetime import datetime
-
+from openai import OpenAI, APITimeoutError, InternalServerError
 
 def load_config(filepath):
     with open(filepath, "r") as file:
@@ -21,6 +21,18 @@ def load_config(filepath):
             config["debug"] = []
 
     return config
+
+def load_provider_config(provider, model_name):
+    """Load configuration for the specified provider."""
+    config_raw = load_config("resources/config.yaml")
+
+    # only this provider
+    config_non_sensitive = {k: v for k, v in config_raw.items() if k != "providers"} | config_raw["providers"][provider][model_name]
+
+    # add credentials
+    config = config_non_sensitive | load_config("resources/credentials.yaml")
+
+    return config_non_sensitive, config
 
 def destructure(dictionary, *keys):
     """it boggles my mind that Python doesn't have destructuring"""
@@ -225,3 +237,29 @@ def print_progress_with_estimate(current_index, total_count, start_time):
         time_str = ""
 
     print(f"\n### SYSTEM: Starting attempt {current_index}/{total_count}{time_str}")
+
+def make_completionfn():
+    config_non_sensitive, config = load_provider_config("openai", "o4-mini")
+
+    client = OpenAI(api_key=config['api-keys']['openai'])
+
+    def create_completion(client, **kwargs):
+        """closure to pre-load the model"""
+
+        return client.beta.chat.completions.parse(
+            **kwargs
+        )
+
+    def completionfn(**kwargs):
+        if "temperature" in config:
+            kwargs["temperature"] = config['temperature']
+
+        if "reasoning_effort" in config:
+            kwargs["reasoning_effort"] = config['reasoning_effort']
+
+        return create_completion(client, model=config['model'], **kwargs)
+
+    return LLMRateLimiter(rate_limit_seconds=config['rate-limit'],
+                          llmfn=completionfn,
+                          backoff_exceptions=[(APITimeoutError, 300),
+                                              (InternalServerError, 60)])

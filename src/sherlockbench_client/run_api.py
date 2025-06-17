@@ -1,5 +1,5 @@
 import os
-from .main import load_config, destructure, post
+from .main import load_config, load_provider_config, destructure, post
 from . import queries as q
 from datetime import datetime
 import argparse
@@ -14,7 +14,6 @@ from .run_internal import (
     resume_failed_run,
     start_new_run,
     reset_attempt,
-    load_provider_config,
     save_run_failure,
     process_remaining_attempts,
     pick_executor
