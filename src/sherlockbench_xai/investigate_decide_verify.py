@@ -3,11 +3,11 @@ from datetime import datetime
 from functools import partial
 
 from pydantic import BaseModel
-from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, make_completionfn
 
 from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs
-from .prompts import make_initial_messages, make_decision_messages
-from .verify import verify
+from .prompts import make_initial_messages
+from sherlockbench_openai import decision, make_decision_messages, verify
 
 class ToolCallHandler:
     def __init__(self, postfn, printer, attempt_id, arg_spec, output_type):
@@ -117,20 +117,6 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
 
     raise MsgLimitException("Investigation loop overrun.")
 
-def decision(completionfn, messages, printer):
-    completion = completionfn(messages=messages)
-
-    response = completion.choices[0]
-    message = response.message.content
-
-    printer.print("\n--- LLM ---")
-    printer.indented_print(message)
-
-    messages.append({"role": "assistant",
-                            "content": message})
-
-    return messages
-
 def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
@@ -148,6 +134,8 @@ def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, atte
 
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
+
+    completionfn = make_completionfn()
 
     messages = make_decision_messages(tool_calls)
     messages = decision(completionfn, messages, printer)
