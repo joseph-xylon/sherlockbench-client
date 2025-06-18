@@ -4,12 +4,12 @@ from datetime import datetime
 from functools import partial
 
 from google.genai import types
-from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, make_completionfn
 
 from .investigate_verify import generate_schema, normalize_args, format_tool_call, format_inputs
-from .prompts import system_message, make_initial_message, make_decision_message
+from .prompts import system_message, make_initial_message
 from .utility import save_message
-from .verify import verify
+from sherlockbench_openai import decision, make_decision_messages, verify
 
 class NoToolException(Exception):
     """When the LLM doesn't use it's tool when it was expected to."""
@@ -148,25 +148,6 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
 
     raise MsgLimitException("Investigation loop overrun.")
 
-def decision(completionfn, messages, printer):
-    for _ in range(3):
-        completion = completionfn(contents=messages)
-
-        if completion.candidates is None:
-            print("Got None response. Retrying after delay.")
-            time.sleep(60)
-        else:
-            break
-
-    message = get_text_from_completion(completion)
-
-    printer.print("\n--- LLM ---")
-    printer.indented_print(message)
-
-    messages.append(save_message("model", message))
-
-    return messages
-
 def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
@@ -184,7 +165,9 @@ def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, atte
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
 
-    messages = [save_message("user", make_decision_message(tool_calls))]
+    completionfn = make_completionfn()
+
+    messages = make_decision_messages(tool_calls)
     messages = decision(completionfn, messages, printer)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)

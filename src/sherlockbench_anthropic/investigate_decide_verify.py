@@ -4,11 +4,12 @@ from functools import partial
 from pprint import pprint
 
 from anthropic.types import TextBlock, ToolUseBlock, ThinkingBlock, RedactedThinkingBlock
-from sherlockbench_client import destructure, AccumulatingPrinter, q
+from sherlockbench_client import destructure, AccumulatingPrinter, q, make_completionfn
 
 from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs, NoToolException, MsgLimitException, parse_completion
-from .prompts import make_initial_message, make_decision_messages
-from .verify import verify
+from .prompts import make_initial_message
+
+from sherlockbench_openai import decision, make_decision_messages, verify
 
 class ToolCallHandler:
     def __init__(self, postfn, printer, attempt_id, arg_spec, output_type):
@@ -135,18 +136,6 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
 
     raise MsgLimitException("Investigation loop overrun.")
 
-def decision(completionfn, messages, printer):
-    completion = completionfn(messages=messages)
-
-    thinking, redacted_thinking, message, tool_calls = parse_completion(completion.content)
-
-    printer.print("\n--- LLM ---")
-    printer.indented_print(message)
-
-    messages.append({"role": "assistant", "content": message})
-
-    return messages
-
 def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
@@ -164,6 +153,8 @@ def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, atte
 
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
+
+    completionfn = make_completionfn()
 
     messages = make_decision_messages(tool_calls)
     messages = decision(completionfn, messages, printer)

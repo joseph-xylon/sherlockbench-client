@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial
 
 from pydantic import BaseModel
-from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, make_completionfn
 
 from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs
 from .prompts import make_initial_messages, make_decision_messages
@@ -141,6 +141,8 @@ def investigate_decide_verify(postfn, completionfn, config, run_id, cursor, atte
 
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
+
+    completionfn = make_completionfn()
 
     messages = make_decision_messages(tool_calls)
     messages = decision(completionfn, messages, printer)
