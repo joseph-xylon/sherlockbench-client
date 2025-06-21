@@ -79,6 +79,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
+    egg_count = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
         completion = completionfn(messages=messages, tools=tools)
 
@@ -102,11 +103,24 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
 
         # if it didn't call the tool we can move on to verifications
         else:
-            printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
             messages.append({"role": "assistant",
                              "content": message})
 
-            return (tool_handler.format_call_history(), tool_call_counter)
+            if tool_call_counter < test_limit - 3 and egg_count == 0:
+                eggmsg = f"""You still have {test_limit - tool_call_counter} messages left. Maybe try some more combinations to be confident."""
+                print(f"\n### SYSTEM: {eggmsg}")
+
+                messages.append({"role": "user",
+                                 "content": eggmsg})
+
+                egg_count = 1
+
+                continue
+
+            else:
+                printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
+
+                return (tool_handler.format_call_history(), tool_call_counter)
 
     raise MsgLimitException("Investigation loop overrun.")
 
@@ -120,7 +134,7 @@ def decision(completionfn, messages, printer):
     printer.indented_print(message)
 
     messages.append({"role": "assistant",
-                            "content": message})
+                     "content": message})
 
     return messages
 
