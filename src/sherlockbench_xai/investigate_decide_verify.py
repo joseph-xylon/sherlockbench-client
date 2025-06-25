@@ -87,6 +87,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     egg_count = 0
+    lastegg = False
     for _ in range(0, test_limit + 10):  # the primary limit is on tool calls. This is just a failsafe
         completion = completionfn(messages=messages, tools=tools)
 
@@ -98,6 +99,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
         printer.indented_print(message)
 
         if tool_calls:
+            lastegg = False
             printer.print("\n### SYSTEM: calling tool")
             messages.append({"role": "assistant",
                              "content": message,
@@ -113,7 +115,8 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
             messages.append({"role": "assistant",
                              "content": message})
 
-            if tool_call_counter < test_limit - 3:
+            if tool_call_counter < test_limit - 3 and not lastegg:
+                lastegg = True
                 eggmsg = f"""You still have {test_limit - tool_call_counter} messages left. Maybe try some more combinations to be confident."""
                 print(f"\n### SYSTEM: {eggmsg}")
 
