@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> This is a modified version of SherlockBench for doing specific experiments. See the [branch-specific README](README-inv-vs-dv.md).
+
 # SherlockBench Clients
 
 This codebase contains the clients for the SherlockBench AI benchmarking system.
