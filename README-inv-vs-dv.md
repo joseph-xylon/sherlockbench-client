@@ -17,7 +17,8 @@ Then you must run sherlockbench-client with 200 attempts per problem. This is
 because it will run the investigation 10 times and then complete the attempt 20
 times for each so 10*20 = 200.
 ```
-sbench_openai_3p GPT-4.1 custom-inverialloddoreven --attempts-per-problem 200 --labels 'random'
+sbench_list
+sbench_openai_3p GPT-4.1 custom-addbigsmall --attempts-per-problem 200 --labels 'random'
 ```
 
 Once the run is complete, this query will help you to extract the results from the database (replace run_id):
