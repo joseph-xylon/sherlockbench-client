@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> This is a modified version of SherlockBench for doing specific experiments. See the [branch-specific README](README-standardized-dv.md).
+> This is a modified version of SherlockBench for doing specific experiments. See the [branch-specific README](README-standardized-dv-random.md).
 
 # SherlockBench Clients
 

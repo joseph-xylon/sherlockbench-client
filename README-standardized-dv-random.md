@@ -1,3 +1,8 @@
+> [!NOTE]
+> This is the same as the inv-vs-dv branch except the investigation is randomly generated.
+> To see the code that generates the random investigation, see repository sherlockbench-api
+> file `src/clj/sherlockbench/random_investigation.clj`.
+
 The purpose of this branch is to isolate the investigation performance. It runs
 the investigation as usual, then always use OpenAI's o4-mini for the decicion
 and verification.
