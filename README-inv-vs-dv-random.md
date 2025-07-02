@@ -1,3 +1,8 @@
+> [!NOTE]
+> This is the same as the inv-vs-dv branch except the investigation is randomly generated.
+> To see the code that generates the random investigation, see repository sherlockbench-api
+> file `src/clj/sherlockbench/random_investigation.clj`.
+
 The purpose of this branch is to help see how dependant the model's performance
 on the decision and verification phases is upon the investigation phase.
 
