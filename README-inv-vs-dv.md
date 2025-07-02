@@ -33,3 +33,7 @@ WHERE  result = 'true'
 GROUP  BY i_value
 ORDER  BY i_value;
 ```
+
+n.b. resuming failed runs is not supported on this branch. If it fails you will
+have to restart. n.b. if there are intermittent exceptions you can handle them
+with the `backoff_exceptions` setting in each client's main.py.
