@@ -1,7 +1,7 @@
 from datetime import datetime
 from functools import partial
 
-from openai import OpenAI, RateLimitError
+from openai import OpenAI, RateLimitError, APITimeoutError
 
 from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, print_progress_with_estimate
 from sherlockbench_client import run_with_error_handling, set_current_attempt
@@ -37,7 +37,8 @@ def run_benchmark(executor, config, db_conn, cursor, run_id, attempts, start_tim
 
     completionfn = LLMRateLimiter(rate_limit_seconds=config['rate-limit'],
                                   llmfn=completionfn,
-                                  backoff_exceptions=[(RateLimitError, 300)])
+                                  backoff_exceptions=[(RateLimitError, 300),
+                                                      (APITimeoutError, 300)])
 
     executor_p = partial(executor, postfn, completionfn, config, run_id, cursor)
 
