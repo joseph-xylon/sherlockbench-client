@@ -155,7 +155,7 @@ def run_with_error_handling(provider, main_function, ex_spec):
             # Complete the run
             complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, config)
 
-        except Exception as e:
+        except (Exception, KeyboardInterrupt) as e:
             # Capture error information
             error_type = type(e).__name__
             error_message = str(e)
