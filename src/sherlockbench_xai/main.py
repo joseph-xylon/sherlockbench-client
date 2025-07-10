@@ -22,7 +22,8 @@ def run_benchmark(executor, config, db_conn, cursor, run_id, attempts, start_tim
     This function is called by run_with_error_handling.
     """
     client = OpenAI(base_url="https://api.x.ai/v1",
-                    api_key=config['api-keys']['xai'])
+                    api_key=config['api-keys']['xai'],
+                    timeout=900.0)
 
     postfn = lambda *args: post(config["base-url"], run_id, *args)
 
