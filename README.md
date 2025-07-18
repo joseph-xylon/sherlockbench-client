@@ -83,25 +83,25 @@ providers:
 
     Sonnet-4:
       rate-limit: 120
-      default-run-mode: "2-phase"
+      default-run-mode: "3-phase"
 
       model: "claude-sonnet-4-20250514"
 
     Opus 4:
       rate-limit: 120
-      default-run-mode: "2-phase"
+      default-run-mode: "3-phase"
 
       model: "claude-opus-4-20250514"
 
     Sonnet-4+thinking:
       rate-limit: 120
-      default-run-mode: "2-phase"
+      default-run-mode: "3-phase"
 
       model: "claude-sonnet-4-20250514+thinking"
 
     Opus-4+thinking:
       rate-limit: 120
-      default-run-mode: "2-phase"
+      default-run-mode: "3-phase"
 
       model: "claude-opus-4-20250514+thinking"
 
@@ -133,6 +133,12 @@ providers:
 
       model: "grok-3-mini"
       reasoning_effort: "high"
+
+    Grok-4:
+      rate-limit: 20
+      default-run-mode: "2-phase"
+
+      model: "grok-4-0709"
 
   deepseek:
     v3:
