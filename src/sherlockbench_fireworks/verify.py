@@ -23,8 +23,10 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
         except LengthFinishReasonError as e:
             print("Caught a LengthFinishReasonError!")
             print("Completion:", e.completion)
+            eventlogger("verify-lengtherror")
 
             # well it failed so we return False
+
             return False
 
         try:
@@ -35,6 +37,7 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
         except json.decoder.JSONDecodeError as e:
             print("Failed to decode JSON")
             print("Error:", e)
+            eventlogger("verify-jsonerror")
 
             # well it failed so we break
             break

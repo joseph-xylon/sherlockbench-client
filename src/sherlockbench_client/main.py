@@ -142,7 +142,7 @@ def make_schema(output_type):
     return Prediction
 
 class LLMRateLimiter:
-    def __init__(self, rate_limit_seconds: int, llmfn: Callable, backoff_exceptions: list):
+    def __init__(self, eventlogger: Callable, rate_limit_seconds: int, llmfn: Callable, backoff_exceptions: list):
         """
         Initialize the RateLimiter.
 
@@ -150,6 +150,7 @@ class LLMRateLimiter:
         :param backoff_exceptions: List of tuples, each containing (exception_type, backoff_seconds).
         """
         self.llmfn = llmfn
+        self.eventlogger = eventlogger
         self.backoff_exceptions = backoff_exceptions
         self.rate_limit_seconds = rate_limit_seconds
         self.last_call_time = None
@@ -193,6 +194,7 @@ class LLMRateLimiter:
 
                 self.rate_limit_seconds += 1
                 print(f"\n### SYSTEM: backing off for {backoff_time} seconds and increasing rate limit to {self.rate_limit_seconds} seconds (retry {retry+1}/{max_retries})")
+                self.eventlogger("backoff")
 
                 # If this was the last retry, re-raise the exception
                 if retry == max_retries - 1:

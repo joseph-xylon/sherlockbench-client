@@ -10,12 +10,13 @@ from .prompts import make_initial_messages, make_decision_messages, make_3p_veri
 from .verify import verify
 
 class ToolCallHandler:
-    def __init__(self, postfn, printer, attempt_id, arg_spec, output_type):
+    def __init__(self, postfn, printer, attempt_id, arg_spec, output_type, eventlogger):
         self.postfn = postfn
         self.printer = printer
         self.attempt_id = attempt_id
         self.arg_spec = arg_spec
         self.output_type = output_type
+        self.eventlogger = eventlogger
         self.call_history = []
 
     def handle_tool_call(self, call):
@@ -28,6 +29,8 @@ class ToolCallHandler:
                 "content": "invalid json when calling tool",
                 "tool_call_id": call.id
             }
+
+            self.eventlogger("invalid-tool-call")
 
             return function_call_result_message
 
@@ -68,7 +71,7 @@ class MsgLimitException(Exception):
     """When the LLM uses too many messages."""
     pass
 
-def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
+def investigate(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, arg_spec, output_type, test_limit):
     mapped_args = list_to_map(arg_spec)
     tools = [
         {
@@ -86,7 +89,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
         }
     ]
 
-    tool_handler = ToolCallHandler(postfn, printer, attempt_id, arg_spec, output_type)
+    tool_handler = ToolCallHandler(postfn, printer, attempt_id, arg_spec, output_type, eventlogger)
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
@@ -147,7 +150,7 @@ def investigate_decide_verify(postfn, completionfn, eventlogger, config, run_id,
     printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
 
     messages = make_initial_messages(test_limit)
-    tool_calls, tool_call_count = investigate(config, postfn, completionfn, messages,
+    tool_calls, tool_call_count = investigate(config, postfn, completionfn, eventlogger, messages,
                                               printer, attempt_id, arg_spec, output_type, test_limit)
 
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)

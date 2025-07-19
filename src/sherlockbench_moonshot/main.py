@@ -36,7 +36,7 @@ def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attemp
 
         return create_completion(client, model=config['model'], **kwargs)
 
-    completionfn = LLMRateLimiter(rate_limit_seconds=config['rate-limit'],
+    completionfn = LLMRateLimiter(eventlogger, rate_limit_seconds=config['rate-limit'],
                                   llmfn=completionfn,
                                   backoff_exceptions=[(RateLimitError, 300),
                                                       (APITimeoutError, 300)])

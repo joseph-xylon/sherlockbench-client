@@ -37,14 +37,12 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
         # Anthropic 'Requests which include `tool_use` or `tool_result` blocks must define tools.'
         vmessages = [messages[-1]] + [make_verification_message(verification_formatted)]
 
-        # claude sometimes gives invalid json. retry a few times
-        attempts = 0
-
         # to prevent UnboundLocalError later
         thoughts = ""
         expected_output = ""
 
-        while attempts < 3:
+        # claude sometimes gives invalid json. retry a few times
+        for attempt in range(3):
             completion = completionfn(messages=vmessages)
 
             response = next((item.text for item in completion.content if isinstance(item, TextBlock)), None)
@@ -58,9 +56,9 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
                 break
 
             except json.JSONDecodeError as e:
-                attempts += 1
-                print(f"Attempt {attempts} failed: {e}")
+                print(f"Attempt {attempt} failed: {e}")
                 print(cleaned_response)
+                eventlogger("verify-jsonerror")
 
         printer.print("\n--- LLM ---")
         printer.indented_print(thoughts, "\n")

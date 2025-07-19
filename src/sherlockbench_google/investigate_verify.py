@@ -89,7 +89,7 @@ def get_text_from_completion(obj_list):
     return result
 
 
-def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
+def investigate(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, arg_spec, output_type, test_limit):
     mapped_args = generate_schema(arg_spec)
     required_args = list(mapped_args.keys())
     function = types.FunctionDeclaration(
@@ -108,13 +108,13 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
         # sometimes gemini-2.5-pro returns None
-        attempts = 0
         for _ in range(3):
             completion = completionfn(contents=messages, tools=tools)
 
             if completion.candidates is None:
                 print("Got None response. Retrying after delay.")
                 time.sleep(60)
+                eventlogger("investigate-none-reponse")
             else:
                 break
 
@@ -155,7 +155,7 @@ def investigate_verify(postfn, completionfn, eventlogger, config, run_id, cursor
     printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
 
     messages = [save_message("user", make_initial_message(test_limit))]
-    messages, tool_call_count = investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit)
+    messages, tool_call_count = investigate(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, arg_spec, output_type, test_limit)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
     verification_result = verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, value_list_to_map, make_2p_verification_message)

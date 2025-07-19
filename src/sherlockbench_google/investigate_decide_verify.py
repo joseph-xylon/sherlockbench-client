@@ -93,7 +93,7 @@ def get_text_from_completion(obj_list):
     return result
 
 
-def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
+def investigate(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, arg_spec, output_type, test_limit):
     mapped_args = generate_schema(arg_spec)
     required_args = list(mapped_args.keys())
     function = types.FunctionDeclaration(
@@ -114,12 +114,12 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
         # sometimes gemini-2.5-pro returns None
-        attempts = 0
         for _ in range(3):
             completion = completionfn(contents=messages, tools=tools)
 
             if completion.candidates is None:
                 print("Got None response. Retrying after delay.")
+                eventlogger("investigate-none-reponse")
                 time.sleep(60)
             else:
                 break
@@ -148,12 +148,13 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
 
     raise MsgLimitException("Investigation loop overrun.")
 
-def decision(completionfn, messages, printer):
+def decision(completionfn, eventlogger, messages, printer):
     for _ in range(3):
         completion = completionfn(contents=messages)
 
         if completion.candidates is None:
             print("Got None response. Retrying after delay.")
+            eventlogger("investigate-none-reponse")
             time.sleep(60)
         else:
             break
@@ -179,13 +180,13 @@ def investigate_decide_verify(postfn, completionfn, eventlogger, config, run_id,
     printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
 
     messages = [save_message("user", make_initial_message(test_limit))]
-    tool_calls, tool_call_count = investigate(config, postfn, completionfn, messages,
+    tool_calls, tool_call_count = investigate(config, postfn, completionfn, eventlogger, messages,
                                               printer, attempt_id, arg_spec, output_type, test_limit)
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
 
     messages = [save_message("user", make_decision_message(tool_calls))]
-    messages = decision(completionfn, messages, printer)
+    messages = decision(completionfn, eventlogger, messages, printer)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
     verification_result = verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message)

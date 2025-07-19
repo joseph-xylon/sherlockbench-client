@@ -25,6 +25,7 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
             print("Completion:", e.completion)
 
             # well it failed so we return False
+            eventlogger("verify-lengtherror")
             return False
 
         response = completion.choices[0]
@@ -36,6 +37,7 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
             print(e)
 
             # well it failed so we return False
+            eventlogger("verify-jsonerror")
             return False
 
         printer.print("\n--- LLM ---")

@@ -40,7 +40,7 @@ def format_tool_call(args, arg_spec, output_type, result):
 
     return f"{format_inputs(arg_spec, args)} → {oput}"
 
-def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
+def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, eventlogger, call):
     arguments = json.loads(call.function.arguments)
     args_norm = normalize_args(arguments)
 
@@ -63,6 +63,8 @@ def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
             "tool_call_id": call.id
         }
 
+        eventlogger("invalid-tool-call")
+
     return function_call_result_message
 
 class NoToolException(Exception):
@@ -73,7 +75,7 @@ class MsgLimitException(Exception):
     """When the LLM uses too many messages."""
     pass
 
-def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
+def investigate(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, arg_spec, output_type, test_limit):
     mapped_args = list_to_map(arg_spec)
     tools = [
         {
@@ -108,7 +110,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
                              "content": message,
                              "tool_calls": tool_calls})
 
-            handle_tool_call_p = partial(handle_tool_call, postfn, printer, attempt_id, arg_spec, output_type)
+            handle_tool_call_p = partial(handle_tool_call, postfn, printer, attempt_id, arg_spec, output_type, eventlogger)
             for call in tool_calls:
                 messages.append(handle_tool_call_p(call))
 
@@ -136,7 +138,7 @@ def investigate_verify(postfn, completionfn, eventlogger, config, run_id, cursor
     printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
 
     messages = make_initial_messages(test_limit)
-    messages, tool_call_count = investigate(config, postfn, completionfn, messages,
+    messages, tool_call_count = investigate(config, postfn, completionfn, eventlogger, messages,
                                             printer, attempt_id, arg_spec, output_type, test_limit)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)

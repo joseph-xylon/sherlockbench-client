@@ -25,6 +25,7 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
             print("Completion:", e.completion)
 
             # well it failed so we break
+            eventlogger("verify-lengtherror")
             break
 
         try:
@@ -37,6 +38,7 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
             print("Error:", e)
 
             # well it failed so we return False
+            eventlogger("verify-jsonerror")
             return False
 
         printer.print("\n--- LLM ---")
