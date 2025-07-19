@@ -266,3 +266,24 @@ def calculate_pass_at_k(cursor, run_id):
     pass_at_k = problems_passed / total_problems if total_problems > 0 else 0
 
     return pass_at_k, k, problems_passed, total_problems
+
+def get_event_counts(cursor, run_id):
+    """
+    Retrieve all event counts for a specific run.
+
+    Args:
+        cursor: Database cursor
+        run_id: The UUID of the run
+
+    Returns:
+        list: List of tuples containing (event_name, count) ordered by count descending
+    """
+    query = """
+        SELECT event_name, count
+        FROM event_counts
+        WHERE run_id = %s
+        ORDER BY count DESC, event_name ASC
+    """
+
+    cursor.execute(query, (run_id,))
+    return cursor.fetchall()

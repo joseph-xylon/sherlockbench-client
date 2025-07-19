@@ -112,6 +112,18 @@ def complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, 
     if k > 1:  # Only display pass@k if we have multiple attempts per problem
         print(f"\nPass@{k} score: {problems_passed}/{total_problems} ({pass_at_k:.0%})")
 
+    # Get and display event counts
+    event_counts = q.get_event_counts(cursor, run_id)
+    if event_counts:
+        print(f"\n### Event Summary")
+        total_events = sum(count for _, count in event_counts)
+        print(f"Total events: {total_events}")
+
+        for event_name, count in event_counts:
+            print(f"  {event_name}: {count}")
+    else:
+        print(f"\nNo events logged during this run.")
+
     # Why do database libraries require so much boilerplate?
     db_conn.commit()
     cursor.close()
