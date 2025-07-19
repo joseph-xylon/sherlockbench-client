@@ -3,7 +3,7 @@ from openai import LengthFinishReasonError
 from pydantic import BaseModel
 from sherlockbench_client import destructure, make_schema
 
-def verify(config, postfn, completionfn, messages, printer, attempt_id, v_formatter, make_verification_message):
+def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, v_formatter, make_verification_message):
     # for each verification
     while (v_data := postfn("next-verification", {"attempt-id": attempt_id})):
         verification = v_data["next-verification"]

@@ -124,7 +124,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
 
     raise MsgLimitException("Investigation loop overrun.")
 
-def investigate_verify(postfn, completionfn, config, run_id, cursor, attempt):
+def investigate_verify(postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
     start_time = datetime.now()
@@ -140,7 +140,7 @@ def investigate_verify(postfn, completionfn, config, run_id, cursor, attempt):
                                             printer, attempt_id, arg_spec, output_type, test_limit)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
-    verification_result = verify(config, postfn, completionfn, messages, printer, attempt_id, value_list_to_map, make_2p_verification_message)
+    verification_result = verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, value_list_to_map, make_2p_verification_message)
 
     time_taken = (datetime.now() - start_time).total_seconds()
     q.add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id)

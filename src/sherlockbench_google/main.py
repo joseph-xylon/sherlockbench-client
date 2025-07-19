@@ -38,7 +38,7 @@ def create_completion(client, tools=None, schema=None, temperature=None, **kwarg
         **kwargs
     )
 
-def run_benchmark(executor, config, db_conn, cursor, run_id, attempts, start_time):
+def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attempts, start_time):
     """
     Run the Google benchmark with the given parameters.
     This function is called by run_with_error_handling.
@@ -57,7 +57,7 @@ def run_benchmark(executor, config, db_conn, cursor, run_id, attempts, start_tim
                                   llmfn=completionfn,
                                   backoff_exceptions=[(errors.ServerError, 300), (errors.ClientError, 900)])
 
-    executor_p = partial(executor, postfn, completionfn, config, run_id, cursor)
+    executor_p = partial(executor, postfn, completionfn, eventlogger, config, run_id, cursor)
 
     for i, attempt in enumerate(attempts, 1):
         print_progress_with_estimate(i, len(attempts), start_time)

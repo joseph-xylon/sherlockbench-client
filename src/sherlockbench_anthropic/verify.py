@@ -23,7 +23,7 @@ def last_brace_block(s: str) -> str:
         return s[start:end+1]
     return ''
 
-def verify(config, postfn, completionfn, messages, printer, attempt_id, v_formatter, make_verification_message):
+def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, v_formatter, make_verification_message):
     # for each verification
     while (v_data := postfn("next-verification", {"attempt-id": attempt_id})):
         verification = v_data["next-verification"]

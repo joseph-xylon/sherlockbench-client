@@ -2,6 +2,7 @@ import os
 from .main import load_config, destructure, post
 from . import queries as q
 from datetime import datetime
+from functools import partial
 import argparse
 import psycopg2
 import re
@@ -148,9 +149,11 @@ def run_with_error_handling(provider, main_function, ex_spec):
 
         executor = pick_executor(config, ex_spec)
 
+        eventlogger = partial(q.log_event, db_conn, run_id)
+
         try:
             # Call the provider's main function, which should return info needed for completion
-            postfn, total_call_count, _ = main_function(executor, config, db_conn, cursor, run_id, attempts, start_time)
+            postfn, total_call_count, _ = main_function(executor, config, db_conn, cursor, eventlogger, run_id, attempts, start_time)
 
             # Complete the run
             complete_run(postfn, db_conn, cursor, run_id, start_time, total_call_count, config)
