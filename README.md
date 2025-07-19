@@ -152,6 +152,12 @@ providers:
 
       model: "deepseek-reasoner"
 
+  moonshot:
+    Kimi-k2:
+      rate-limit: 30
+      default-run-mode: "3-phase"
+
+      model: kimi-k2-0711-preview
 ```
 
 And a `resources/credentials.yaml` containing your db credentials and API keys:
@@ -166,7 +172,7 @@ api-keys:
   fireworks: ""
   xai: ""
   deepseek: ""
-  mistral: ""
+  moonshot: ""
 ```
 
 Running it should be essentially:
