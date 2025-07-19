@@ -1,7 +1,8 @@
 from datetime import datetime
 from functools import partial
 
-import anthropic
+from anthropic import Anthropic
+from anthropic._exceptions import OverloadedError, InternalServerError
 
 from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, print_progress_with_estimate
 from sherlockbench_client import run_with_error_handling, set_current_attempt
@@ -40,7 +41,7 @@ def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attemp
     Run the Anthropic benchmark with the given parameters.
     This function is called by run_with_error_handling.
     """
-    client = anthropic.Anthropic(api_key=config['api-keys']['anthropic'])
+    client = Anthropic(api_key=config['api-keys']['anthropic'])
 
     postfn = lambda *args: post(config["base-url"], run_id, *args)
 
@@ -52,7 +53,8 @@ def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attemp
 
     completionfn = LLMRateLimiter(eventlogger, rate_limit_seconds=config['rate-limit'],
                                   llmfn=completionfn,
-                                  backoff_exceptions=[(anthropic._exceptions.OverloadedError, 600)])
+                                  backoff_exceptions=[(OverloadedError, 600),
+                                                      (InternalServerError, 60)])
 
     executor_p = partial(executor, postfn, completionfn, eventlogger, config, run_id, cursor)
 
