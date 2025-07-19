@@ -23,10 +23,10 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
         except LengthFinishReasonError as e:
             print("Caught a LengthFinishReasonError!")
             print("Completion:", e.completion)
-
-            # well it failed so we break
             eventlogger("verify-lengtherror")
-            break
+
+            # well it failed so we return False
+            return False
 
         try:
             response = completion.choices[0]
@@ -36,9 +36,9 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
         except json.decoder.JSONDecodeError as e:
             print("Failed to decode JSON")
             print("Error:", e)
+            eventlogger("verify-jsonerror")
 
             # well it failed so we return False
-            eventlogger("verify-jsonerror")
             return False
 
         printer.print("\n--- LLM ---")

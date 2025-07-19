@@ -26,7 +26,6 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
             eventlogger("verify-lengtherror")
 
             # well it failed so we return False
-
             return False
 
         try:
@@ -39,8 +38,8 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
             print("Error:", e)
             eventlogger("verify-jsonerror")
 
-            # well it failed so we break
-            break
+            # well it failed so we return False
+            return False
 
         printer.print("\n--- LLM ---")
         printer.indented_print(thoughts, "\n")
