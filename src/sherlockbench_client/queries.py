@@ -178,6 +178,26 @@ def save_run_failure(cursor, run_id, failure_info):
     cursor.execute(str(update_query))
     cursor.connection.commit()
 
+def log_event(cursor, run_id, event_name):
+    """
+    Log an event occurrence for a run, incrementing the count if it already exists.
+
+    Args:
+        cursor: Database cursor
+        run_id: The ID of the run
+        event_name: A simple string to identify the event
+    """
+    # Use raw SQL for PostgreSQL's ON CONFLICT syntax since pypika doesn't support it
+    upsert_query = """
+        INSERT INTO event_counts (run_id, event_name, count)
+        VALUES (%s, %s, 1)
+        ON CONFLICT (run_id, event_name)
+        DO UPDATE SET count = event_counts.count + 1
+    """
+
+    cursor.execute(upsert_query, (run_id, event_name))
+    cursor.connection.commit()
+
 def get_attempts_by_function(cursor, run_id):
     """
     Get all attempts for a run, grouped by function_name.
