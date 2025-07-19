@@ -161,7 +161,7 @@ def run_with_error_handling(provider, main_function, ex_spec):
 
         executor = pick_executor(config, ex_spec)
 
-        eventlogger = partial(q.log_event, db_conn, run_id)
+        eventlogger = partial(q.log_event, cursor, run_id)
 
         try:
             # Call the provider's main function, which should return info needed for completion
