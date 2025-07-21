@@ -65,7 +65,10 @@ def two_phase():
     run_with_error_handling("fireworks", run_benchmark, investigate_verify)
 
 def three_phase():
-    run_with_error_handling("fireworks", run_benchmark, investigate_decide_verify)
+    run_with_error_handling("fireworks", run_benchmark, partial(investigate_decide_verify, False))
+
+def inv_isolated():
+    run_with_error_handling("fireworks", run_benchmark, partial(investigate_decide_verify, True))
 
 def main():
     run_with_error_handling("fireworks", run_benchmark, {"2-phase": investigate_verify,
