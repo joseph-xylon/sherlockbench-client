@@ -52,7 +52,7 @@ def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attemp
 
     completionfn = make_completionfn(config, eventlogger)
 
-    executor_p = partial(executor, postfn, completionfn, eventlogger, config, run_id, cursor)
+    executor_p = partial(executor, postfn, completionfn, eventlogger, config, run_id, cursor, make_completionfn)
 
     for i, attempt in enumerate(attempts, 1):
         print_progress_with_estimate(i, len(attempts), start_time)
@@ -73,7 +73,10 @@ def two_phase():
     run_with_error_handling("openai", run_benchmark, investigate_verify)
 
 def three_phase():
-    run_with_error_handling("openai", run_benchmark, investigate_decide_verify)
+    run_with_error_handling("openai", run_benchmark, partial(investigate_decide_verify, False))
+
+def inv_isolated():
+    run_with_error_handling("openai", run_benchmark, partial(investigate_decide_verify, True))
 
 def main():
     run_with_error_handling("openai", run_benchmark, {"2-phase": investigate_verify,

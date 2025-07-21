@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial
 
 from pydantic import BaseModel
-from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, isolated_config
 
 from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs
 from .prompts import make_initial_messages, make_decision_messages, make_3p_verification_message
@@ -124,7 +124,7 @@ def decision(completionfn, messages, printer):
 
     return messages
 
-def investigate_decide_verify(postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
+def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, config, run_id, cursor, make_completionfn, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
     start_time = datetime.now()
@@ -142,11 +142,16 @@ def investigate_decide_verify(postfn, completionfn, eventlogger, config, run_id,
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
 
+    if isolated:
+        completionfn_ = make_completionfn(isolated_config, eventlogger)
+    else:
+        completionfn_ = completionfn
+
     messages = make_decision_messages(tool_calls)
-    messages = decision(completionfn, messages, printer)
+    messages = decision(completionfn_, messages, printer)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
-    verification_result = verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message)
+    verification_result = verify(config, postfn, completionfn_, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message)
 
     time_taken = (datetime.now() - start_time).total_seconds()
     q.add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id)
