@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from typing import Callable
 from datetime import datetime
 
-
 def load_config(filepath):
     with open(filepath, "r") as file:
         config = yaml.safe_load(file)

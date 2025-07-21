@@ -192,7 +192,7 @@ def get_or_error(d, key, error_msg):
 
 def pick_executor(config, ex_spec):
     "Either we have been provided with a function, or a spec to match against the config."
-    if isinstance(ex_spec, types.FunctionType):
+    if isinstance(ex_spec, types.FunctionType) or callable(ex_spec):
         return ex_spec
 
     elif isinstance(ex_spec, dict):

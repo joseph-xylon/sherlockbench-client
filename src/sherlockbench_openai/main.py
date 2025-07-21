@@ -11,22 +11,16 @@ from .investigate_decide_verify import investigate_decide_verify
 from .investigate_verify import investigate_verify
 from .prompts import make_initial_messages
 
-def create_completion(client, **kwargs):
-    """closure to pre-load the model"""
-
-    return client.beta.chat.completions.parse(
-        **kwargs
-    )
-
-def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attempts, start_time):
-    """
-    Run the OpenAI benchmark with the given parameters.
-    This function is called by run_with_error_handling.
-    """
+def make_completionfn(config, eventlogger):
     client = OpenAI(api_key=config['api-keys']['openai'],
                     timeout=900.0)
 
-    postfn = lambda *args: post(config["base-url"], run_id, *args)
+    def create_completion(client, **kwargs):
+        """closure to pre-load the model"""
+
+        return client.beta.chat.completions.parse(
+            **kwargs
+        )
 
     def completionfn(**kwargs):
         if "temperature" in config:
@@ -45,6 +39,18 @@ def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attemp
                                   backoff_exceptions=[(APITimeoutError, 300),
                                                       (InternalServerError, 60),
                                                       (BadRequestError, 60)])
+
+    return completionfn
+
+def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attempts, start_time):
+    """
+    Run the OpenAI benchmark with the given parameters.
+    This function is called by run_with_error_handling.
+    """
+
+    postfn = lambda *args: post(config["base-url"], run_id, *args)
+
+    completionfn = make_completionfn(config, eventlogger)
 
     executor_p = partial(executor, postfn, completionfn, eventlogger, config, run_id, cursor)
 

@@ -4,11 +4,18 @@ from functools import partial
 from pprint import pprint
 
 from anthropic.types import TextBlock, ToolUseBlock, ThinkingBlock, RedactedThinkingBlock
-from sherlockbench_client import destructure, AccumulatingPrinter, q
+from sherlockbench_client import destructure, AccumulatingPrinter, q, isolated_config
 
 from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs, NoToolException, MsgLimitException, parse_completion
 from .prompts import make_initial_message, make_decision_messages, make_3p_verification_message
 from .verify import verify
+
+# for inv-isolated mode
+from sherlockbench_openai import make_completionfn
+from sherlockbench_openai import decision as decision_isolated
+from sherlockbench_openai import make_decision_messages as make_decision_messages_isolated
+from sherlockbench_openai import make_3p_verification_message as make_3p_verification_message_isolated
+from sherlockbench_openai import verify as verify_isolated
 
 class ToolCallHandler:
     def __init__(self, postfn, printer, attempt_id, arg_spec, output_type):
@@ -147,7 +154,7 @@ def decision(completionfn, messages, printer):
 
     return messages
 
-def investigate_decide_verify(postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
+def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
     start_time = datetime.now()
@@ -165,11 +172,24 @@ def investigate_decide_verify(postfn, completionfn, eventlogger, config, run_id,
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
 
-    messages = make_decision_messages(tool_calls)
-    messages = decision(completionfn, messages, printer)
+    if isolated:
+        decision_ = decision_isolated
+        completionfn_ = make_completionfn(isolated_config, eventlogger)
+        make_decision_messages_ = make_decision_messages_isolated
+        make_3p_verification_message_ = make_3p_verification_message_isolated
+        verify_ = verify_isolated
+    else:
+        decision_ = decision
+        completionfn_ = completionfn
+        make_decision_messages_ = make_decision_messages
+        make_3p_verification_message_ = make_3p_verification_message
+        verify_ = verify
+
+    messages = make_decision_messages_(tool_calls)
+    messages = decision_(completionfn_, messages, printer)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
-    verification_result = verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message)
+    verification_result = verify_(config, postfn, completionfn_, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message_)
 
     time_taken = (datetime.now() - start_time).total_seconds()
     q.add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id)
