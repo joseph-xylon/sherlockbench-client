@@ -193,20 +193,19 @@ def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, confi
     printer.print(tool_calls)
 
     if isolated:
-        decision_ = decision_isolated
         completionfn_ = make_completionfn(isolated_config, eventlogger)
-        make_decision_message_ = make_decision_messages_isolated
         make_3p_verification_message_ = make_3p_verification_message_isolated
         verify_ = verify_isolated
+
+        messages = make_decision_messages_isolated(tool_calls)
+        messages = decision_isolated(completionfn_, messages, printer)
     else:
-        decision_ = decision
         completionfn_ = completionfn
-        make_decision_message_ = make_decision_message
         make_3p_verification_message_ = make_3p_verification_message
         verify_ = verify
 
-    messages = [save_message("user", make_decision_message_(tool_calls))]
-    messages = decision_(completionfn_, eventlogger, messages, printer)
+        messages = [save_message("user", make_decision_message(tool_calls))]
+        messages = decision(completionfn_, eventlogger, messages, printer)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
     verification_result = verify_(config, postfn, completionfn_, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message_)
