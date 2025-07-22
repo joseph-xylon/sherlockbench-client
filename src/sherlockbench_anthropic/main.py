@@ -84,4 +84,4 @@ def inv_isolated():
 
 def main():
     run_with_error_handling("anthropic", run_benchmark, {"2-phase": investigate_verify,
-                                                         "3-phase": investigate_decide_verify})
+                                                         "3-phase": partial(investigate_decide_verify, False)})
