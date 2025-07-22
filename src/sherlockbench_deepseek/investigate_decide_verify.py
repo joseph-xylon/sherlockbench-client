@@ -164,6 +164,7 @@ def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, confi
     printer.print(tool_calls)
 
     if isolated:
+        assert ISOLATED_CONFIG is not None, "Error: o4-mini-medium needs to be configured to use this test mode."
         decision_ = decision_isolated
         completionfn_ = make_completionfn(ISOLATED_CONFIG, eventlogger)
         make_decision_messages_ = make_decision_messages_isolated
