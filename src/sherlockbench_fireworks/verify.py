@@ -2,6 +2,7 @@ import json
 from openai import LengthFinishReasonError
 from pydantic import BaseModel
 from sherlockbench_client import destructure, make_schema
+from .utility import remove_think_blocks
 
 def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, v_formatter, make_verification_message):
     # for each verification
@@ -31,11 +32,12 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
         try:
             response = completion.choices[0]
 
-            thoughts, expected_output = destructure(json.loads(response.message.content), "thoughts", "expected_output")
+            thoughts, expected_output = destructure(json.loads(remove_think_blocks(response.message.content)), "thoughts", "expected_output")
 
         except json.decoder.JSONDecodeError as e:
             print("Failed to decode JSON")
             print("Error:", e)
+            print(response.message.content)
             eventlogger("verify-jsonerror")
 
             # well it failed so we return False

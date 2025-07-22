@@ -9,6 +9,7 @@ from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRate
 
 from .prompts import make_initial_messages, make_2p_verification_message
 from .verify import verify
+from .utility import remove_think_blocks
 
 def list_to_map(input_list):
     """openai doesn't like arrays much so just assign arbritray keys"""
@@ -18,19 +19,6 @@ def list_to_map(input_list):
 def normalize_args(input_dict):
     """Converts a dict into a list of values, sorted by the alphabetical order of the keys."""
     return [input_dict[key] for key in sorted(input_dict.keys())]
-
-def remove_think_blocks(text: str) -> str:
-    """
-    Removes all occurrences of <think>...</think> (including the tags and content in between)
-    from the input multi-line string.
-    For Qwen as-per their recommendations: https://huggingface.co/Qwen/Qwen3-235B-A22B
-    """
-    if text is None:
-        return text
-
-    # re.DOTALL makes '.' match newlines as well
-    pattern = r"<think>.*?</think>"
-    return re.sub(pattern, "", text, flags=re.DOTALL)
 
 def format_inputs(arg_spec, args):
     # Show strings in double-quotes
