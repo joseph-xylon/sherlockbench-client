@@ -4,7 +4,7 @@ from functools import partial
 from pprint import pprint
 
 from anthropic.types import TextBlock, ToolUseBlock, ThinkingBlock, RedactedThinkingBlock
-from sherlockbench_client import destructure, AccumulatingPrinter, q, isolated_config
+from sherlockbench_client import destructure, AccumulatingPrinter, q, ISOLATED_CONFIG
 
 from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs, NoToolException, MsgLimitException, parse_completion
 from .prompts import make_initial_message, make_decision_messages, make_3p_verification_message
@@ -174,7 +174,7 @@ def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, confi
 
     if isolated:
         decision_ = decision_isolated
-        completionfn_ = make_completionfn(isolated_config, eventlogger)
+        completionfn_ = make_completionfn(ISOLATED_CONFIG, eventlogger)
         make_decision_messages_ = make_decision_messages_isolated
         make_3p_verification_message_ = make_3p_verification_message_isolated
         verify_ = verify_isolated

@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial
 
 from pydantic import BaseModel
-from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, isolated_config
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, ISOLATED_CONFIG
 
 from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs
 from .prompts import make_initial_messages, make_decision_messages, make_3p_verification_message
@@ -143,7 +143,7 @@ def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, confi
     printer.print(tool_calls)
 
     if isolated:
-        completionfn_ = make_completionfn(isolated_config, eventlogger)
+        completionfn_ = make_completionfn(ISOLATED_CONFIG, eventlogger)
     else:
         completionfn_ = completionfn
 

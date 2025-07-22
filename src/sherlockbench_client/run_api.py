@@ -213,4 +213,7 @@ def run_with_error_handling(provider, main_function, ex_spec):
             # Re-raise the exception to exit with error
             raise
 
-_, isolated_config = load_provider_config("openai", "o4-mini")
+try:
+    _, ISOLATED_CONFIG = load_provider_config("openai", "o4-mini-medium")
+except KeyError:
+    ISOLATED_CONFIG = None

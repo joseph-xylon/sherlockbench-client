@@ -4,7 +4,7 @@ from datetime import datetime
 from functools import partial
 
 from google.genai import types
-from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, isolated_config
+from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, ISOLATED_CONFIG
 
 from .investigate_verify import generate_schema, normalize_args, format_tool_call, format_inputs
 from .prompts import system_message, make_initial_message, make_decision_message, make_3p_verification_message
@@ -193,7 +193,7 @@ def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, confi
     printer.print(tool_calls)
 
     if isolated:
-        completionfn_ = make_completionfn(isolated_config, eventlogger)
+        completionfn_ = make_completionfn(ISOLATED_CONFIG, eventlogger)
         make_3p_verification_message_ = make_3p_verification_message_isolated
         verify_ = verify_isolated
 
