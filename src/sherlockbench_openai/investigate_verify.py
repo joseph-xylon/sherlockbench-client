@@ -131,7 +131,7 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
     raise MsgLimitException("Investigation loop overrun.")
 
 
-def investigate_verify(postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
+def investigate_verify(postfn, completionfn, eventlogger, config, run_id, cursor, _, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
     start_time = datetime.now()
