@@ -76,7 +76,10 @@ def three_phase():
     run_with_error_handling("openai", run_benchmark, partial(investigate_decide_verify, False))
 
 def inv_isolated():
-    run_with_error_handling("openai", run_benchmark, partial(investigate_decide_verify, True))
+    run_with_error_handling("openai", run_benchmark, partial(investigate_decide_verify, "inv_isolated"))
+
+def random_inv():
+    run_with_error_handling("openai", run_benchmark, partial(investigate_decide_verify, "random_inv"))
 
 def main():
     run_with_error_handling("openai", run_benchmark, {"2-phase": investigate_verify,

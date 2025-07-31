@@ -145,7 +145,7 @@ def decision(completionfn, messages, printer):
 
     return messages
 
-def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
+def investigate_decide_verify(experiment, postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
     start_time = datetime.now()
@@ -154,16 +154,23 @@ def investigate_decide_verify(isolated, postfn, completionfn, eventlogger, confi
     # setup the printer
     printer = AccumulatingPrinter()
 
-    printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
+    if experiment == "random_inv":
+        printer.print("\n### SYSTEM: getting random investigation for args", arg_spec)
 
-    messages = make_initial_messages(test_limit)
-    tool_calls, tool_call_count = investigate(config, postfn, completionfn, eventlogger, messages,
-                                              printer, attempt_id, arg_spec, output_type, test_limit)
+        tool_calls = postfn("developer/random-investigation", {"attempt-id": attempt_id})["output"]
+        tool_call_count = test_limit
+
+    else:
+        printer.print("\n### SYSTEM: interrogating function with args", arg_spec)
+
+        messages = make_initial_messages(test_limit)
+        tool_calls, tool_call_count = investigate(config, postfn, completionfn, eventlogger, messages,
+                                                  printer, attempt_id, arg_spec, output_type, test_limit)
 
     printer.print("\n### SYSTEM: making decision based on tool calls", arg_spec)
     printer.print(tool_calls)
 
-    if isolated:
+    if experiment == "inv_isolated":
         assert ISOLATED_CONFIG is not None, "Error: o4-mini-medium needs to be configured to use this test mode."
         decision_ = decision_isolated
         completionfn_ = make_completionfn(ISOLATED_CONFIG, eventlogger)
