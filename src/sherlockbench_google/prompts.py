@@ -1,6 +1,6 @@
-system_message_old = """You are a competent and alert chatbot.
+system_message_old = """You are a competent LLM, operating agentically.
 
-You are provided with a mystery function which you will \"interrogate\" to try to determine what it does. Use the provided tool to do this.
+You are provided with a mystery function which you will test to try to determine what it does. Use the provided tool to do this. There is a limit on how many total times this tool may be used, and the user message will specify what that limit is.
 
 Once you are confident you know what the function does, you will inform the user.
 
