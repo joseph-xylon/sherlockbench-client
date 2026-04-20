@@ -214,8 +214,8 @@ def main():
         else:
             print(f"Attempt summary for {len(existing_ids)} runs:")
 
-        for run_id in existing_ids:
-            print(f"  - {run_id}")
+            for run_id in existing_ids:
+                print(f"  - {run_id}")
 
         print()
 
