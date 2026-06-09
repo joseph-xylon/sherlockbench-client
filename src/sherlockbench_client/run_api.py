@@ -1,4 +1,5 @@
 import os
+from contextlib import nullcontext
 from .main import load_config, destructure, post
 from . import queries as q
 from datetime import datetime
@@ -62,6 +63,7 @@ def start_run(provider):
     parser.add_argument("--attempts-per-problem", type=int, help="Number of attempts per problem")
     parser.add_argument("--resume", choices=["skip", "retry"], help="How to handle resuming from a failed run: 'skip' the failed attempt, or 'retry' it")
     parser.add_argument("--labels", nargs="+", help="Optional labels for this run (e.g., 'baseline', 'experiment', 'keeper')")
+    parser.add_argument("--no-lock", action="store_true", help="Skip the per-provider file lock (allows concurrent runs)")
 
     args = parser.parse_args()
 
@@ -146,16 +148,22 @@ def run_with_error_handling(provider, main_function, ex_spec):
                        and return (postfn, total_call_count, config) for run completion.
     """
 
-    lock_path = f"/tmp/sherlockbench_client_{provider}.lock"
-    lock = FileLock(lock_path)
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--no-lock", action="store_true")
+    pre_args, _ = pre_parser.parse_known_args()
 
-    try:
-        lock.acquire(blocking=False)
-    except Timeout:
-        print("A run for this provider is already in-progress. Awaiting it's completion.")
-        print()
+    if pre_args.no_lock:
+        lock_ctx = nullcontext()
+    else:
+        lock_path = f"/tmp/sherlockbench_client_{provider}.lock"
+        lock_ctx = FileLock(lock_path)
+        try:
+            lock_ctx.acquire(blocking=False)
+        except Timeout:
+            print("A run for this provider is already in-progress. Awaiting it's completion.")
+            print()
 
-    with lock:
+    with lock_ctx:
         # Start the run
         config, model_name, db_conn, cursor, run_id, attempts, start_time = start_run(provider)
 
