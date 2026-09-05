@@ -5,7 +5,7 @@ from functools import partial
 from pydantic import BaseModel
 from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, ISOLATED_CONFIG
 
-from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs
+from .investigate_verify import normalize_args, format_tool_call, format_inputs, make_tools, print_output
 from .prompts import make_initial_messages, make_decision_messages, make_3p_verification_message
 from .verify import verify
 
@@ -19,7 +19,7 @@ class ToolCallHandler:
         self.call_history = []
 
     def handle_tool_call(self, call):
-        arguments = json.loads(call.function.arguments)
+        arguments = json.loads(call.arguments)
         args_norm = normalize_args(arguments)
 
         fnoutput, fnerror = destructure(self.postfn("test-function", {"attempt-id": self.attempt_id,
@@ -33,9 +33,9 @@ class ToolCallHandler:
             self.call_history.append((args_norm, fnoutput))
 
         function_call_result_message = {
-            "role": "tool",
-            "content": json.dumps(fnoutput),
-            "tool_call_id": call.id
+            "type": "function_call_output",
+            "output": json.dumps(fnoutput),
+            "call_id": call.call_id
         }
 
         return function_call_result_message
@@ -58,42 +58,24 @@ class MsgLimitException(Exception):
     pass
 
 def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
-    mapped_args = list_to_map(arg_spec)
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "mystery_function",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": mapped_args,
-                    "required": list(mapped_args.keys()),
-                    "additionalProperties": False
-                },
-            },
-        }
-    ]
+    tools = make_tools(arg_spec)
 
     tool_handler = ToolCallHandler(postfn, printer, attempt_id, arg_spec, output_type)
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
-        completion = completionfn(messages=messages, tools=tools)
+        response = completionfn(input=messages, tools=tools,
+                                parallel_tool_calls=False)
 
-        response = completion.choices[0]
-        message = response.message.content
-        tool_calls = response.message.tool_calls
+        tool_calls = [item for item in response.output if item.type == "function_call"]
 
-        printer.print("\n--- LLM ---")
-        printer.indented_print(message)
+        print_output(printer, response)
+
+        messages += response.output
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")
-            messages.append({"role": "assistant",
-                             "content": message,
-                             "tool_calls": tool_calls})
 
             for call in tool_calls:
                 messages.append(tool_handler.handle_tool_call(call))
@@ -103,24 +85,17 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
         # if it didn't call the tool we can move on to verifications
         else:
             printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
-            messages.append({"role": "assistant",
-                             "content": message})
 
             return (tool_handler.format_call_history(), tool_call_counter)
 
     raise MsgLimitException("Investigation loop overrun.")
 
 def decision(completionfn, messages, printer):
-    completion = completionfn(messages=messages)
+    response = completionfn(input=messages)
 
-    response = completion.choices[0]
-    message = response.message.content
+    print_output(printer, response)
 
-    printer.print("\n--- LLM ---")
-    printer.indented_print(message)
-
-    messages.append({"role": "assistant",
-                            "content": message})
+    messages += response.output
 
     return messages
 

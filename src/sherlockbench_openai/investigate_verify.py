@@ -53,8 +53,26 @@ def format_tool_call(args, arg_spec, output_type, result):
 
     return f"{format_inputs(arg_spec, clean_args)} → {oput}"
 
+def make_tools(arg_spec):
+    """the tool schema, in the flat shape the responses api expects"""
+    mapped_args = list_to_map(arg_spec)
+
+    return [
+        {
+            "type": "function",
+            "name": "mystery_function",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": mapped_args,
+                "required": list(mapped_args.keys()),
+                "additionalProperties": False
+            },
+        }
+    ]
+
 def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
-    arguments = json.loads(call.function.arguments)
+    arguments = json.loads(call.arguments)
     args_norm = normalize_args(arguments)
 
     fnoutput = postfn("test-function", {"attempt-id": attempt_id,
@@ -63,9 +81,9 @@ def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
     printer.indented_print(format_tool_call(args_norm, arg_spec, output_type, fnoutput))
 
     function_call_result_message = {
-        "role": "tool",
-        "content": json.dumps(fnoutput),
-        "tool_call_id": call.id
+        "type": "function_call_output",
+        "output": json.dumps(fnoutput),
+        "call_id": call.call_id
     }
 
     return function_call_result_message
@@ -78,41 +96,39 @@ class MsgLimitException(Exception):
     """When the LLM uses too many messages."""
     pass
 
+def print_output(printer, response):
+    """print the reasoning summary, if we asked for one, then the message"""
+    summaries = [s.text for item in response.output if item.type == "reasoning"
+                 for s in item.summary]
+
+    if summaries:
+        printer.print("\n--- REASONING ---")
+        for summary in summaries:
+            printer.indented_print(summary)
+
+    printer.print("\n--- LLM ---")
+    printer.indented_print(response.output_text)
+
 def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
-    mapped_args = list_to_map(arg_spec)
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "mystery_function",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": mapped_args,
-                    "required": list(mapped_args.keys()),
-                    "additionalProperties": False
-                },
-            },
-        }
-    ]
+    tools = make_tools(arg_spec)
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
-        completion = completionfn(messages=messages, tools=tools)
+        response = completionfn(input=messages, tools=tools,
+                                parallel_tool_calls=False)
 
-        response = completion.choices[0]
-        message = response.message.content
-        tool_calls = response.message.tool_calls
+        tool_calls = [item for item in response.output if item.type == "function_call"]
 
-        printer.print("\n--- LLM ---")
-        printer.indented_print(message)
+        print_output(printer, response)
+
+        # append the output verbatim so each reasoning item keeps the item it
+        # belongs to directly after it. this is what carries the model's
+        # reasoning across tool calls.
+        messages += response.output
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")
-            messages.append({"role": "assistant",
-                             "content": message,
-                             "tool_calls": tool_calls})
 
             handle_tool_call_p = partial(handle_tool_call, postfn, printer, attempt_id, arg_spec, output_type)
             for call in tool_calls:
@@ -123,8 +139,6 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
         # if it didn't call the tool we can move on to verifications
         else:
             printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
-            messages.append({"role": "assistant",
-                             "content": message})
 
             return (messages, tool_call_counter)
 

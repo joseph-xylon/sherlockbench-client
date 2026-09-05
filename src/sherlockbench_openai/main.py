@@ -18,7 +18,7 @@ def make_completionfn(config, eventlogger):
     def create_completion(client, **kwargs):
         """closure to pre-load the model"""
 
-        return client.beta.chat.completions.parse(
+        return client.responses.parse(
             **kwargs
         )
 
@@ -27,7 +27,13 @@ def make_completionfn(config, eventlogger):
             kwargs["temperature"] = config['temperature']
 
         if "reasoning_effort" in config:
-            kwargs["reasoning_effort"] = config['reasoning_effort']
+            reasoning = {"effort": config['reasoning_effort']}
+
+            # summaries require a verified org so they are opt-in
+            if "reasoning_summary" in config:
+                reasoning["summary"] = config['reasoning_summary']
+
+            kwargs["reasoning"] = reasoning
 
         if "service_tier" in config:
             kwargs["service_tier"] = config['service_tier']

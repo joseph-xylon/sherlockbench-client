@@ -1,7 +1,4 @@
-import json
-from openai import LengthFinishReasonError
-from pydantic import BaseModel
-from sherlockbench_client import destructure, make_schema
+from sherlockbench_client import make_schema
 
 def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, v_formatter, make_verification_message):
     # for each verification
@@ -16,20 +13,27 @@ def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt
 
         vmessages = messages + [make_verification_message(verification_formatted)]
 
-        try:
-            completion = completionfn(messages=vmessages,
-                                      response_format=make_schema(output_type))
-        except LengthFinishReasonError as e:
-            print("Caught a LengthFinishReasonError!")
-            print("Completion:", e.completion)
+        completion = completionfn(input=vmessages,
+                                  text_format=make_schema(output_type))
+
+        # the responses api doesn't raise for this, it comes back incomplete
+        if completion.status == "incomplete":
+            print("Response was incomplete:", completion.incomplete_details)
 
             # well it failed so we return False
             eventlogger("verify-lengtherror")
             return False
 
-        response = completion.choices[0]
+        prediction = completion.output_parsed
 
-        thoughts, expected_output = destructure(json.loads(response.message.content), "thoughts", "expected_output")
+        # a refusal, or nothing we could parse
+        if prediction is None:
+            print("No parsed output in the response.")
+
+            eventlogger("verify-jsonerror")
+            return False
+
+        thoughts, expected_output = prediction.thoughts, prediction.expected_output
 
         printer.print("\n--- LLM ---")
         printer.indented_print(thoughts, "\n")
