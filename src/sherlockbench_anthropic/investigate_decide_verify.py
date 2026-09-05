@@ -3,11 +3,11 @@ from datetime import datetime
 from functools import partial
 from pprint import pprint
 
-from anthropic.types import TextBlock, ToolUseBlock, ThinkingBlock, RedactedThinkingBlock
 from sherlockbench_client import destructure, AccumulatingPrinter, q, ISOLATED_CONFIG
 
-from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs, NoToolException, MsgLimitException, parse_completion
-from .prompts import make_initial_message, make_decision_messages, make_3p_verification_message
+from .investigate_verify import (normalize_args, format_tool_call, format_inputs, NoToolException,
+                                 MsgLimitException, RefusalException, make_tools, print_output)
+from .prompts import make_initial_message, make_decision_messages, make_3p_verification_message, decision_system_prompt
 from .verify import verify
 
 # for inv-isolated mode
@@ -49,6 +49,9 @@ class ToolCallHandler:
                                         "tool_use_id": call_id,
                                         "content": json.dumps(fnoutput)}
 
+        if fnerror:
+            function_call_result_message["is_error"] = True
+
         return function_call_result_message
 
     def get_call_history(self):
@@ -61,51 +64,29 @@ class ToolCallHandler:
         return "\n".join(lines)
 
 def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
-    mapped_args = list_to_map(arg_spec)
-    tools = [
-        {
-            "name": "mystery_function",
-            "description": "Use this tool to test the mystery function.",
-            "input_schema": {
-                "type": "object",
-                "properties": mapped_args,
-                "required": list(mapped_args.keys())
-            }
-        }
-    ]
+    tools = make_tools(arg_spec)
 
     tool_handler = ToolCallHandler(postfn, printer, attempt_id, arg_spec, output_type)
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
-        #pprint(messages)
-        completion = completionfn(messages=messages, tools=tools)
+        completion = completionfn(messages=messages, tools=tools,
+                                  tool_choice={"type": "auto",
+                                               "disable_parallel_tool_use": True})
 
-        thinking, redacted_thinking, message, tool_calls = parse_completion(completion.content)
+        if completion.stop_reason == "refusal":
+            raise RefusalException(completion.stop_details)
 
-        printer.print("\n--- LLM ---")
-        printer.indented_print(message)
+        tool_calls = [b for b in completion.content if b.type == "tool_use"]
+
+        print_output(printer, completion)
+
+        if completion.content:
+            messages.append({"role": "assistant", "content": completion.content})
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")
-            # Add thinking block for models with +thinking suffix
-            content_blocks = []
-
-            if thinking:
-                # Convert the ThinkingBlock object to a dict for the API
-                content_blocks.append({"type": "thinking", "thinking": thinking.thinking, "signature": thinking.signature})
-
-            if redacted_thinking:
-                # Handle redacted thinking block
-                content_blocks.append({"type": "redacted_thinking"})
-
-            if message is not None:
-                content_blocks.append({"type": "text", "text": message})
-
-            content_blocks.extend(tool_calls)
-
-            messages.append({"role": "assistant", "content": content_blocks})
 
             tool_call_user_message = {
                 "role": "user",
@@ -123,34 +104,17 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
         else:
             printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
 
-            content_blocks = []
-
-            if thinking:
-                # Convert the ThinkingBlock object to a dict for the API
-                content_blocks.append({"type": "thinking", "thinking": thinking.thinking, "signature": thinking.signature})
-
-            if redacted_thinking:
-                # Handle redacted thinking block
-                content_blocks.append({"type": "redacted_thinking"})
-
-            if message is not None:
-                content_blocks.append({"type": "text", "text": message})
-
-            messages.append({"role": "assistant", "content": content_blocks})
-
             return (tool_handler.format_call_history(), tool_call_counter)
 
     raise MsgLimitException("Investigation loop overrun.")
 
 def decision(completionfn, messages, printer):
-    completion = completionfn(messages=messages)
+    completion = completionfn(messages=messages, system=decision_system_prompt)
 
-    thinking, redacted_thinking, message, tool_calls = parse_completion(completion.content)
+    print_output(printer, completion)
 
-    printer.print("\n--- LLM ---")
-    printer.indented_print(message)
-
-    messages.append({"role": "assistant", "content": message})
+    if completion.content:
+        messages.append({"role": "assistant", "content": completion.content})
 
     return messages
 

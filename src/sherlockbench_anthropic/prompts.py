@@ -16,10 +16,10 @@ I would like you to test my function using the provided tool until you think you
 You may test this function up-to {test_limit} times."""}
     ]
 
+decision_system_prompt = """You are a competent and alert chatbot. You will help to investigate a mystery function."""
+
 def make_decision_messages(examples_text):
     return [
-        {"role": "user", "content":
-         """You are a competent and alert chatbot. You will help to investigate a mystery function."""},
         {"role": "user", "content":
          f"""I have a mystery function and I want you to figure out what it does.
 

@@ -1,64 +1,54 @@
-from anthropic.types import TextBlock, ToolUseBlock
-import json
-from sherlockbench_client import destructure
-from pprint import pprint
+from sherlockbench_client import make_schema
 
-def last_brace_block(s: str) -> str:
+def text_blocks(message):
+    """The text blocks of an assistant turn.
+
+    We drop the thinking blocks because verification sends a truncated
+    history: a lone turn lifted out of its conversation carries thinking
+    signatures whose recorded prefix no longer matches.
     """
-    Returns the last complete brace-enclosed block from the input string,
-    including any nested braces. Unmatched braces are ignored.
-    If no complete block exists, returns an empty string.
-    """
-    stack = []
-    pairs = []
-    for i, c in enumerate(s):
-        if c == '{':
-            stack.append(i)
-        elif c == '}':
-            if stack:
-                start = stack.pop()
-                pairs.append((start, i))
-    if pairs:
-        start, end = pairs[-1]
-        return s[start:end+1]
-    return ''
+    return [b for b in message["content"] if getattr(b, "type", None) == "text"]
 
 def verify(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, v_formatter, make_verification_message):
     # for each verification
     while (v_data := postfn("next-verification", {"attempt-id": attempt_id})):
         verification = v_data["next-verification"]
         output_type = v_data["output-type"]
- 
+
         verification_formatted = v_formatter(verification)
 
         printer.print("\n### SYSTEM: inputs:")
         printer.indented_print(verification_formatted)
 
         # Anthropic 'Requests which include `tool_use` or `tool_result` blocks must define tools.'
-        vmessages = [messages[-1]] + [make_verification_message(verification_formatted)]
+        vmessages = [{"role": "assistant", "content": text_blocks(messages[-1])},
+                     make_verification_message(verification_formatted)]
 
-        # to prevent UnboundLocalError later
-        thoughts = ""
-        expected_output = ""
+        completion = completionfn(messages=vmessages,
+                                  output_format=make_schema(output_type))
 
-        # claude sometimes gives invalid json. retry a few times
-        for attempt in range(3):
-            completion = completionfn(messages=vmessages)
+        if completion.stop_reason == "refusal":
+            print("The model refused:", completion.stop_details)
 
-            response = next((item.text for item in completion.content if isinstance(item, TextBlock)), None)
+            eventlogger("verify-refusal")
+            return False
 
-            try:
-                # Claude often includes loads of other text in addition to
-                # the JSON
-                cleaned_response = last_brace_block(response)
-                
-                thoughts, expected_output = destructure(json.loads(cleaned_response), "thoughts", "expected_output")
-                break
+        if completion.stop_reason == "max_tokens":
+            print("The response was truncated.")
 
-            except json.JSONDecodeError as e:
-                print(f"Attempt {attempt} failed: {e}")
-                print(cleaned_response)
-                eventlogger("verify-jsonerror")
+            eventlogger("verify-lengtherror")
+            return False
+
+        prediction = completion.parsed_output
+
+        # nothing we could parse
+        if prediction is None:
+            print("No parsed output in the response.")
+
+            eventlogger("verify-jsonerror")
+            return False
+
+        thoughts, expected_output = prediction.thoughts, prediction.expected_output
 
         printer.print("\n--- LLM ---")
         printer.indented_print(thoughts, "\n")

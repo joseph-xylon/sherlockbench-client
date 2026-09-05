@@ -3,8 +3,6 @@ from datetime import datetime
 from functools import partial
 from pprint import pprint
 
-from anthropic.types import TextBlock, ToolUseBlock, ThinkingBlock, RedactedThinkingBlock
-
 from sherlockbench_client import destructure, AccumulatingPrinter, q, value_list_to_map
 
 from .prompts import make_initial_message, make_2p_verification_message
@@ -38,6 +36,10 @@ class NoToolException(Exception):
     """When the LLM doesn't use it's tool when it was expected to."""
     pass
 
+class RefusalException(Exception):
+    """When the model declines the request outright."""
+    pass
+
 class MsgLimitException(Exception):
     """When the LLM uses too many messages."""
     pass
@@ -50,17 +52,37 @@ def format_tool_call(args, arg_spec, output_type, result):
 
     return f"{format_inputs(arg_spec, args)} → {oput}"
 
-def parse_completion(content):
-    #text = next((d["text"] for d in content if d.get("type") == "text"), None)
-    #tool = next((d["input"] for d in content if d.get("type") == "tool_use"), None)
+def make_tools(arg_spec):
+    mapped_args = list_to_map(arg_spec)
 
-    # using next allows us to have a default value
-    thinking_block = next((item for item in content if isinstance(item, ThinkingBlock)), None)
-    redacted_thinking_block = next((item for item in content if isinstance(item, RedactedThinkingBlock)), None)
-    text = next((item.text for item in content if isinstance(item, TextBlock)), None)
-    tool = [item for item in content if isinstance(item, ToolUseBlock)]
+    return [
+        {
+            "name": "mystery_function",
+            "description": "Use this tool to test the mystery function.",
+            "strict": True,
+            "input_schema": {
+                "type": "object",
+                "properties": mapped_args,
+                "required": list(mapped_args.keys()),
+                "additionalProperties": False
+            }
+        }
+    ]
 
-    return (thinking_block, redacted_thinking_block, text, tool)
+def print_output(printer, completion):
+    """print the thinking summary, if the model gave one, then the text"""
+    summaries = [b.thinking for b in completion.content
+                 if b.type == "thinking" and b.thinking]
+
+    if summaries:
+        printer.print("\n--- REASONING ---")
+        for summary in summaries:
+            printer.indented_print(summary)
+
+    printer.print("\n--- LLM ---")
+    for block in completion.content:
+        if block.type == "text":
+            printer.indented_print(block.text)
 
 def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
     arguments = call.input
@@ -72,6 +94,7 @@ def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
 
     # Handle case where the output key is missing
     fnoutput = response.get("output", "Error calling tool")
+    fnerror = response.get("error", False)
 
     printer.indented_print(format_tool_call(args_norm, arg_spec, output_type, fnoutput))
 
@@ -79,52 +102,35 @@ def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
                                     "tool_use_id": call_id,
                                     "content": json.dumps(fnoutput)}
 
+    if fnerror:
+        function_call_result_message["is_error"] = True
+
     return function_call_result_message
 
 def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg_spec, output_type, test_limit):
-    mapped_args = list_to_map(arg_spec)
-    tools = [
-        {
-            "name": "mystery_function",
-            "description": "Use this tool to test the mystery function.",
-            "input_schema": {
-                "type": "object",
-                "properties": mapped_args,
-                "required": list(mapped_args.keys())
-            }
-        }
-    ]
+    tools = make_tools(arg_spec)
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
-        #pprint(messages)
-        completion = completionfn(messages=messages, tools=tools)
+        completion = completionfn(messages=messages, tools=tools,
+                                  tool_choice={"type": "auto",
+                                               "disable_parallel_tool_use": True})
 
-        thinking, redacted_thinking, message, tool_calls = parse_completion(completion.content)
+        if completion.stop_reason == "refusal":
+            raise RefusalException(completion.stop_details)
 
-        printer.print("\n--- LLM ---")
-        printer.indented_print(message)
+        tool_calls = [b for b in completion.content if b.type == "tool_use"]
+
+        print_output(printer, completion)
+
+        # echo the content back verbatim so the thinking blocks keep their
+        # order and signatures. reconstructing it invalidates them.
+        if completion.content:
+            messages.append({"role": "assistant", "content": completion.content})
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")
-            # Add thinking block for models with +thinking suffix
-            content_blocks = []
-
-            if thinking:
-                # Convert the ThinkingBlock object to a dict for the API
-                content_blocks.append({"type": "thinking", "thinking": thinking.thinking, "signature": thinking.signature})
-
-            if redacted_thinking:
-                # Handle redacted thinking block
-                content_blocks.append({"type": "redacted_thinking"})
-
-            if message is not None:
-                content_blocks.append({"type": "text", "text": message})
-
-            content_blocks.extend(tool_calls)
-
-            messages.append({"role": "assistant", "content": content_blocks})
 
             tool_call_user_message = {
                 "role": "user",
@@ -142,21 +148,6 @@ def investigate(config, postfn, completionfn, messages, printer, attempt_id, arg
         # if it didn't call the tool we can move on to verifications
         else:
             printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
-
-            content_blocks = []
-
-            if thinking:
-                # Convert the ThinkingBlock object to a dict for the API
-                content_blocks.append({"type": "thinking", "thinking": thinking.thinking, "signature": thinking.signature})
-
-            if redacted_thinking:
-                # Handle redacted thinking block
-                content_blocks.append({"type": "redacted_thinking"})
-
-            if message is not None:
-                content_blocks.append({"type": "text", "text": message})
-
-            messages.append({"role": "assistant", "content": content_blocks})
 
             return (messages, tool_call_counter)
 
