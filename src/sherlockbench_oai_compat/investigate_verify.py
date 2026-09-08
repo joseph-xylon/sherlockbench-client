@@ -1,15 +1,13 @@
 import json
 from datetime import datetime
 from functools import partial
-import re
 
-from openai import BadRequestError
 from pydantic import BaseModel
 from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, value_list_to_map
 
 from .prompts import make_initial_messages, make_2p_verification_message
+
 from .verify import verify
-from .utility import remove_think_blocks
 
 def list_to_map(input_list):
     """openai doesn't like arrays much so just assign arbritray keys"""
@@ -55,20 +53,26 @@ def format_tool_call(args, arg_spec, output_type, result):
 
     return f"{format_inputs(arg_spec, clean_args)} → {oput}"
 
-def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, eventlogger, call):
-    try:
-        arguments = json.loads(call.function.arguments)
+def make_tools(arg_spec):
+    """the tool schema, in the flat shape the responses api expects"""
+    mapped_args = list_to_map(arg_spec)
 
-    except json.JSONDecodeError as e:
-        function_call_result_message = {
-            "role": "tool",
-            "content": "invalid json when calling tool",
-            "tool_call_id": call.id
+    return [
+        {
+            "type": "function",
+            "name": "mystery_function",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": mapped_args,
+                "required": list(mapped_args.keys()),
+                "additionalProperties": False
+            },
         }
+    ]
 
-        eventlogger("invalid-tool-call")
-        return function_call_result_message
-
+def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, call):
+    arguments = json.loads(call.arguments)
     args_norm = normalize_args(arguments)
 
     fnoutput = postfn("test-function", {"attempt-id": attempt_id,
@@ -77,9 +81,9 @@ def handle_tool_call(postfn, printer, attempt_id, arg_spec, output_type, eventlo
     printer.indented_print(format_tool_call(args_norm, arg_spec, output_type, fnoutput))
 
     function_call_result_message = {
-        "role": "tool",
-        "content": json.dumps(fnoutput),
-        "tool_call_id": call.id
+        "type": "function_call_output",
+        "output": json.dumps(fnoutput),
+        "call_id": call.call_id
     }
 
     return function_call_result_message
@@ -92,59 +96,61 @@ class MsgLimitException(Exception):
     """When the LLM uses too many messages."""
     pass
 
+def print_output(printer, response):
+    """print the reasoning summary, if we asked for one, then the message"""
+    summaries = [s.text for item in response.output if item.type == "reasoning"
+                 for s in item.summary]
+
+    if summaries:
+        printer.print("\n--- REASONING ---")
+        for summary in summaries:
+            printer.indented_print(summary)
+
+    printer.print("\n--- LLM ---")
+    printer.indented_print(response.output_text)
+
 def investigate(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, arg_spec, output_type, test_limit):
-    mapped_args = list_to_map(arg_spec)
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "mystery_function",
-                "parameters": {
-                    "type": "object",
-                    "properties": mapped_args,
-                    "required": list(mapped_args.keys()),
-                    "additionalProperties": False
-                },
-            },
-        }
-    ]
+    tools = make_tools(arg_spec)
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
-        completion = completionfn(messages=messages, tools=tools)
+        response = completionfn(input=messages, tools=tools,
+                                parallel_tool_calls=False)
 
-        response = completion.choices[0]
-        message = response.message.content
-        tool_calls = response.message.tool_calls
+        tool_calls = [item for item in response.output if item.type == "function_call"]
 
-        printer.print("\n--- LLM ---")
-        printer.indented_print(message)
+        print_output(printer, response)
+
+        # append the output verbatim so each reasoning item keeps the item it
+        # belongs to directly after it. this is what carries the model's
+        # reasoning across tool calls.
+        messages += response.output
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")
-            messages.append({"role": "assistant",
-                             "content": remove_think_blocks(message),
-                             "tool_calls": tool_calls})
 
-            handle_tool_call_p = partial(handle_tool_call, postfn, printer, attempt_id, arg_spec, output_type, eventlogger)
-            for call in tool_calls:
-                messages.append(handle_tool_call_p(call))
+            # these servers ignore parallel_tool_calls, so we answer only the
+            # first call. leaving the rest unanswered is accepted.
+            if len(tool_calls) > 1:
+                printer.print("### SYSTEM: ignoring", len(tool_calls) - 1, "parallel tool call(s)")
+                eventlogger("parallel-tool-calls")
 
-                tool_call_counter += 1
+            handle_tool_call_p = partial(handle_tool_call, postfn, printer, attempt_id, arg_spec, output_type)
+            messages.append(handle_tool_call_p(tool_calls[0]))
+
+            tool_call_counter += 1
 
         # if it didn't call the tool we can move on to verifications
         else:
             printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
-            messages.append({"role": "assistant",
-                             "content": remove_think_blocks(message)})
 
             return (messages, tool_call_counter)
 
     raise MsgLimitException("Investigation loop overrun.")
 
 
-def investigate_verify(postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
+def investigate_verify(postfn, completionfn, eventlogger, config, run_id, cursor, _, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
     start_time = datetime.now()

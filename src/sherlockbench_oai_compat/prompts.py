@@ -1,11 +1,13 @@
 def make_initial_messages(test_limit):
     return [
-        {"role": "system", "content":
+        {"role": "developer", "content":
 """You are a competent LLM, operating agentically.
 
 You are provided with a mystery function which you will test to try to determine what it does. Use the provided tool to do this. There is a limit on how many total times this tool may be used, and the user message will specify what that limit is.
 
 Once you are confident you know what the function does, you will inform the user.
+
+The tool does not support parallel calls. Call it once per message and wait for the result before calling it again.
 
 n.b. it is your job to pick inputs for the mystery function. Do not ask the user to provide you with parameters to test. Test the function pro-actively with the provided tool until you work out what the mystery function does.
 """},
@@ -18,7 +20,7 @@ You may test this function up-to {test_limit} times."""}
 
 def make_decision_messages(examples_text):
     return [
-        {"role": "system", "content":
+        {"role": "developer", "content":
          """You are a competent and alert chatbot. You will help to investigate a mystery function."""},
         {"role": "user", "content":
          f"""I have a mystery function and I want you to figure out what it does.

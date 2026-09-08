@@ -5,42 +5,21 @@ from functools import partial
 from pydantic import BaseModel
 from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, ISOLATED_CONFIG
 
-from .investigate_verify import list_to_map, normalize_args, format_tool_call, format_inputs
+from .investigate_verify import normalize_args, format_tool_call, format_inputs, make_tools, print_output
 from .prompts import make_initial_messages, make_decision_messages, make_3p_verification_message
 from .verify import verify
 
-# for inv-isolated mode
-from sherlockbench_openai import make_completionfn
-from sherlockbench_openai import decision as decision_isolated
-from sherlockbench_openai import make_decision_messages as make_decision_messages_isolated
-from sherlockbench_openai import make_3p_verification_message as make_3p_verification_message_isolated
-from sherlockbench_openai import verify as verify_isolated
-
 class ToolCallHandler:
-    def __init__(self, postfn, printer, attempt_id, arg_spec, output_type, eventlogger):
+    def __init__(self, postfn, printer, attempt_id, arg_spec, output_type):
         self.postfn = postfn
         self.printer = printer
         self.attempt_id = attempt_id
         self.arg_spec = arg_spec
         self.output_type = output_type
-        self.eventlogger = eventlogger
         self.call_history = []
 
     def handle_tool_call(self, call):
-        try:
-            arguments = json.loads(call.function.arguments)
-
-        except json.JSONDecodeError as e:
-            function_call_result_message = {
-                "role": "tool",
-                "content": "invalid json when calling tool",
-                "tool_call_id": call.id
-            }
-
-            self.eventlogger("invalid-tool-call")
-
-            return function_call_result_message
-
+        arguments = json.loads(call.arguments)
         args_norm = normalize_args(arguments)
 
         fnoutput, fnerror = destructure(self.postfn("test-function", {"attempt-id": self.attempt_id,
@@ -54,9 +33,9 @@ class ToolCallHandler:
             self.call_history.append((args_norm, fnoutput))
 
         function_call_result_message = {
-            "role": "tool",
-            "content": json.dumps(fnoutput),
-            "tool_call_id": call.id
+            "type": "function_call_output",
+            "output": json.dumps(fnoutput),
+            "call_id": call.call_id
         }
 
         return function_call_result_message
@@ -79,73 +58,52 @@ class MsgLimitException(Exception):
     pass
 
 def investigate(config, postfn, completionfn, eventlogger, messages, printer, attempt_id, arg_spec, output_type, test_limit):
-    mapped_args = list_to_map(arg_spec)
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "mystery_function",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": mapped_args,
-                    "required": list(mapped_args.keys()),
-                    "additionalProperties": False
-                },
-            },
-        }
-    ]
+    tools = make_tools(arg_spec)
 
-    tool_handler = ToolCallHandler(postfn, printer, attempt_id, arg_spec, output_type, eventlogger)
+    tool_handler = ToolCallHandler(postfn, printer, attempt_id, arg_spec, output_type)
 
     # call the LLM repeatedly until it stops calling it's tool
     tool_call_counter = 0
     for _ in range(0, test_limit + 5):  # the primary limit is on tool calls. This is just a failsafe
-        completion = completionfn(messages=messages, tools=tools)
+        response = completionfn(input=messages, tools=tools,
+                                parallel_tool_calls=False)
 
-        response = completion.choices[0]
-        message = response.message.content
-        tool_calls = response.message.tool_calls
+        tool_calls = [item for item in response.output if item.type == "function_call"]
 
-        printer.print("\n--- LLM ---")
-        printer.indented_print(message)
+        print_output(printer, response)
+
+        messages += response.output
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")
-            messages.append({"role": "assistant",
-                             "content": message,
-                             "tool_calls": tool_calls})
 
-            for call in tool_calls:
-                messages.append(tool_handler.handle_tool_call(call))
+            # only the first call is answered; see investigate_verify
+            if len(tool_calls) > 1:
+                printer.print("### SYSTEM: ignoring", len(tool_calls) - 1, "parallel tool call(s)")
+                eventlogger("parallel-tool-calls")
 
-                tool_call_counter += 1
+            messages.append(tool_handler.handle_tool_call(tool_calls[0]))
+
+            tool_call_counter += 1
 
         # if it didn't call the tool we can move on to verifications
         else:
             printer.print("\n### SYSTEM: The tool was used", tool_call_counter, "times.")
-            messages.append({"role": "assistant",
-                             "content": message})
 
             return (tool_handler.format_call_history(), tool_call_counter)
 
     raise MsgLimitException("Investigation loop overrun.")
 
 def decision(completionfn, messages, printer):
-    completion = completionfn(messages=messages)
+    response = completionfn(input=messages)
 
-    response = completion.choices[0]
-    message = response.message.content
+    print_output(printer, response)
 
-    printer.print("\n--- LLM ---")
-    printer.indented_print(message)
-
-    messages.append({"role": "assistant",
-                            "content": message})
+    messages += response.output
 
     return messages
 
-def investigate_decide_verify(experiment, postfn, completionfn, eventlogger, config, run_id, cursor, attempt):
+def investigate_decide_verify(experiment, postfn, completionfn, eventlogger, config, run_id, cursor, make_completionfn, attempt):
     attempt_id, arg_spec, output_type, test_limit = destructure(attempt, "attempt-id", "arg-spec", "output-type", "test-limit")
 
     start_time = datetime.now()
@@ -172,23 +130,15 @@ def investigate_decide_verify(experiment, postfn, completionfn, eventlogger, con
 
     if experiment == "inv_isolated":
         assert ISOLATED_CONFIG is not None, "Error: o4-mini-medium needs to be configured to use this test mode."
-        decision_ = decision_isolated
         completionfn_ = make_completionfn(ISOLATED_CONFIG, eventlogger)
-        make_decision_messages_ = make_decision_messages_isolated
-        make_3p_verification_message_ = make_3p_verification_message_isolated
-        verify_ = verify_isolated
     else:
-        decision_ = decision
         completionfn_ = completionfn
-        make_decision_messages_ = make_decision_messages
-        make_3p_verification_message_ = make_3p_verification_message
-        verify_ = verify
 
-    messages = make_decision_messages_(tool_calls)
-    messages = decision_(completionfn_, messages, printer)
+    messages = make_decision_messages(tool_calls)
+    messages = decision(completionfn_, messages, printer)
 
     printer.print("\n### SYSTEM: verifying function with args", arg_spec)
-    verification_result = verify_(config, postfn, completionfn_, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message_)
+    verification_result = verify(config, postfn, completionfn_, eventlogger, messages, printer, attempt_id, partial(format_inputs, arg_spec), make_3p_verification_message)
 
     time_taken = (datetime.now() - start_time).total_seconds()
     q.add_attempt(cursor, run_id, verification_result, time_taken, tool_call_count, printer, completionfn, start_api_calls, attempt_id)
