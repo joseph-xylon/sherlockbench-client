@@ -22,6 +22,12 @@ from .run_internal import (
     pick_executor
 )
 
+# Providers whose config entries point at endpoints with no meaningful
+# concurrency limit. openrouter has no request cap on paid models and
+# llama-server does continuous batching, and a single lock here would also
+# serialise runs against completely unrelated servers.
+UNLOCKED_PROVIDERS = {"oai-compat"}
+
 # Global variable to track the current attempt being processed
 _current_attempt = None
 
@@ -152,7 +158,7 @@ def run_with_error_handling(provider, main_function, ex_spec):
     pre_parser.add_argument("--no-lock", action="store_true")
     pre_args, _ = pre_parser.parse_known_args()
 
-    if pre_args.no_lock:
+    if pre_args.no_lock or provider in UNLOCKED_PROVIDERS:
         lock_ctx = nullcontext()
     else:
         lock_path = f"/tmp/sherlockbench_client_{provider}.lock"
