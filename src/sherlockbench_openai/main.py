@@ -7,6 +7,9 @@ from openai import OpenAI, APITimeoutError, InternalServerError, BadRequestError
 from sherlockbench_client import destructure, post, AccumulatingPrinter, LLMRateLimiter, q, print_progress_with_estimate
 from sherlockbench_client import run_with_error_handling, set_current_attempt
 
+# sampling params the openai sdk accepts as named arguments
+NATIVE_SAMPLING = {"temperature", "top_p"}
+
 from .investigate_decide_verify import investigate_decide_verify
 from .investigate_verify import investigate_verify
 from .prompts import make_initial_messages
@@ -23,8 +26,13 @@ def make_completionfn(config, eventlogger):
         )
 
     def completionfn(**kwargs):
-        if "temperature" in config:
-            kwargs["temperature"] = config['temperature']
+        # the sdk has named params for these two; everything else rides in
+        # extra_body, which is how openrouter takes top_k, min_p and penalties
+        for key, value in config.get("sampling", {}).items():
+            if key in NATIVE_SAMPLING:
+                kwargs[key] = value
+            else:
+                kwargs.setdefault("extra_body", {})[key] = value
 
         if "reasoning_effort" in config:
             reasoning = {"effort": config['reasoning_effort']}

@@ -111,53 +111,43 @@ providers:
       default-run-mode: "3-phase"
 
       model: "gemini-2.5-flash-preview-05-20"
-      #temperature: 0.0
 
     Gemini-2.5-pro:
       rate-limit: 100
       default-run-mode: "3-phase"
 
       model: "gemini-2.5-pro-preview-05-06"
-      #temperature: 0.0
 
-  xai:
-    Grok-3:
-      rate-limit: 10
+  # Any server speaking the OpenAI /v1/responses dialect: openrouter,
+  # llama-server, ollama. Each entry names its own endpoint, so one section
+  # can span several servers.
+  oai-compat:
+    Gemma-4-31b:
+      rate-limit: 0
       default-run-mode: "2-phase"
 
-      model: "grok-3"
-
-    Grok-3-mini:
-      rate-limit: 10
-      default-run-mode: "2-phase"
-
-      model: "grok-3-mini"
+      llm-base-url: "https://openrouter.ai/api/v1"
+      api-key-name: "openrouter"
+      model: "google/gemma-4-31b-it"
       reasoning_effort: "high"
 
-    Grok-4:
-      rate-limit: 20
+      # Anything under `sampling` is passed straight through to the API.
+      # These servers apply generic defaults (temperature 1, top_p 1, no
+      # top_k), not the model's recommended settings, so set them here if
+      # you want the model card's values. top_p goes as a named parameter;
+      # top_k and min_p ride in extra_body, which openrouter accepts.
+      #sampling:
+      #  temperature: 1.0
+      #  top_p: 0.95
+      #  top_k: 64
+
+    qwen3.5-9b:
+      rate-limit: 0
       default-run-mode: "2-phase"
 
-      model: "grok-4-0709"
-
-  deepseek:
-    v3:
-      rate-limit: 30
-      default-run-mode: "3-phase"
-
-      model: "deepseek-chat"
-
-    R1:
-      rate-limit: 30
-
-      model: "deepseek-reasoner"
-
-  moonshot:
-    Kimi-k2:
-      rate-limit: 30
-      default-run-mode: "3-phase"
-
-      model: kimi-k2-0711-preview
+      llm-base-url: "http://127.0.0.1:9931/v1"
+      api-key-name: "llama-server"
+      model: "local"
 ```
 
 And a `resources/credentials.yaml` containing your db credentials and API keys:
@@ -169,10 +159,9 @@ api-keys:
   anthropic: ""
   openai: ""
   google: ""
-  fireworks: ""
-  xai: ""
-  deepseek: ""
-  moonshot: ""
+  # one key per api-key-name used by an oai-compat entry
+  openrouter: ""
+  llama-server: "sk-no-key-required"
 ```
 
 Running it should be essentially:

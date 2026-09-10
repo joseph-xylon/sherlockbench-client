@@ -13,7 +13,7 @@ from .investigate_verify import investigate_verify
 from .prompts import system_message, make_initial_message
 from .utility import save_message
 
-def create_completion(client, tools=None, schema=None, temperature=None, **kwargs):
+def create_completion(client, tools=None, schema=None, sampling=None, **kwargs):
     """closure to pre-load the model"""
     #print("CONTENTS")
     #print(contents)
@@ -23,8 +23,8 @@ def create_completion(client, tools=None, schema=None, temperature=None, **kwarg
         #"max_output_tokens": 3
     }
 
-    if temperature is not None:
-        config_args["temperature"] = temperature
+    if sampling:
+        config_args.update(sampling)
 
     if tools is not None:
         config_args["tools"] = tools
@@ -48,8 +48,8 @@ def run_benchmark(executor, config, db_conn, cursor, eventlogger, run_id, attemp
     postfn = lambda *args: post(config["base-url"], run_id, *args)
 
     def completionfn(**kwargs):
-        if "temperature" in config:
-            kwargs["temperature"] = config['temperature']
+        if "sampling" in config:
+            kwargs["sampling"] = config['sampling']
 
         return create_completion(client, model=config['model'], **kwargs)
 
