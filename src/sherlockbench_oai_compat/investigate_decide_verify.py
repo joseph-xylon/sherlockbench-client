@@ -72,7 +72,11 @@ def investigate(config, postfn, completionfn, eventlogger, messages, printer, at
 
         print_output(printer, response)
 
-        messages += response.output
+        # parallel calls we won't answer are dropped from the transcript too;
+        # see investigate_verify
+        answered = {call.call_id for call in tool_calls[:1]}
+        messages += [item for item in response.output
+                     if item.type != "function_call" or item.call_id in answered]
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")

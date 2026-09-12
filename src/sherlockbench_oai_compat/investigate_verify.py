@@ -122,16 +122,20 @@ def investigate(config, postfn, completionfn, eventlogger, messages, printer, at
 
         print_output(printer, response)
 
-        # append the output verbatim so each reasoning item keeps the item it
-        # belongs to directly after it. this is what carries the model's
-        # reasoning across tool calls.
-        messages += response.output
+        # append the output so each reasoning item keeps the item it belongs to
+        # directly after it -- that is what carries the model's reasoning across
+        # tool calls. parallel calls we won't answer are dropped: some providers
+        # (Mistral) reject a transcript whose function_call count doesn't match
+        # the number of responses.
+        answered = {call.call_id for call in tool_calls[:1]}
+        messages += [item for item in response.output
+                     if item.type != "function_call" or item.call_id in answered]
 
         if tool_calls:
             printer.print("\n### SYSTEM: calling tool")
 
             # these servers ignore parallel_tool_calls, so we answer only the
-            # first call. leaving the rest unanswered is accepted.
+            # first call and drop the rest from the transcript.
             if len(tool_calls) > 1:
                 printer.print("### SYSTEM: ignoring", len(tool_calls) - 1, "parallel tool call(s)")
                 eventlogger("parallel-tool-calls")
